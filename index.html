@@ -1,0 +1,3747 @@
+<!-- Stalk.ow - v2.1 (2026-07-13): las multas de la policía ya no se cobran al toque, quedan como deuda pendiente; se agregó un apartado de "Multas pendientes" en la app Bank del celular con la descripción, el monto y un botón para pagarlas con el efectivo disponible -->
+<!-- Stalk.ow - v2.0 (2026-07-13): el personaje del jugador dejó de ser un círculo simple; ahora tiene torso, cabeza con pelo y una cara que marca hacia dónde está mirando/caminando, con el mismo nivel de detalle que los NPCs -->
+<!-- Stalk.ow - v1.9 (2026-07-13): los NPCs policía ahora se ven distintos a un peatón común: gorra oscura con visera y placa dorada en el pecho, tanto parados como tirados en el piso -->
+<!-- Stalk.ow - v1.8 (2026-07-13): los NPCs marcados como policía ahora reaccionan de verdad: si atropellás a alguien con el auto quedás "buscado" y los policías cercanos te persiguen a pie; si te alcanzan te cobran una multa y vuelven a su punto de patrulla -->
+<!-- Stalk.ow - v1.7 (2026-07-13): el mapa ahora se genera con una semilla fija guardada en localStorage, asi es siempre el mismo entre sesiones; antes se regeneraba random en cada carga y el jugador/auto guardados (coordenadas del mapa viejo) terminaban apareciendo bajo casas random o lejos del garage -->
+<!-- Stalk.ow - v1.6 (2026-07-13): los barrios peligrosos ahora tienen enemigos reales (ladrones y atacantes) que salen de sus casas, patrullan y persiguen al jugador si se acerca; ya no es solo una probabilidad ciega -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<link rel="manifest" href="manifest.json">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stalk.ow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --accent:#E8A33D;
+    --accent-dim:#C77F1F;
+    --panel-bg:rgba(15,17,13,0.72);
+    --text-main:#EDE8DC;
+    --text-dim:#9C9788;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{width:100%;height:100%;overflow:hidden;background:#11140d;font-family:'JetBrains Mono',monospace;}
+  canvas#game{display:block;width:100vw;height:100vh;background:#11140d;}
+  canvas#game:focus-visible{outline:none;}
+
+  .hud{position:fixed;inset:0;pointer-events:none;}
+
+  .start-screen{position:fixed;inset:0;z-index:100;background:radial-gradient(circle at 50% 38%, #1b2115 0%, #11140d 65%, #0a0c07 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;padding:24px;text-align:center;}
+  .start-screen.hidden{display:none;}
+  .start-title{font-size:clamp(30px,9vw,52px);letter-spacing:5px;font-weight:700;color:var(--text-main);}
+  .start-title span{color:var(--accent);}
+  .start-sub{font-size:12px;letter-spacing:.6px;color:var(--text-dim);max-width:320px;line-height:1.6;}
+  .start-loading{width:min(260px,78vw);display:flex;flex-direction:column;gap:9px;}
+  .start-bar{position:relative;width:100%;height:8px;border-radius:4px;background:rgba(255,255,255,.08);box-shadow:inset 0 0 0 1px rgba(232,163,61,.35);overflow:hidden;}
+  .start-bar-fill{position:absolute;top:0;left:0;height:100%;width:0%;border-radius:4px;background:linear-gradient(90deg,var(--accent-dim),var(--accent));transition:width .15s linear;}
+  .start-status{font-size:10.5px;letter-spacing:1.5px;color:var(--text-dim);text-transform:uppercase;}
+  .start-play-btn{display:none;padding:12px 42px;background:none;border:1px solid rgba(232,163,61,.7);color:var(--accent);font-family:inherit;font-size:13px;letter-spacing:3px;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+  .start-play-btn:active{background:rgba(232,163,61,.25);}
+  .start-play-btn.show{display:inline-block;}
+
+
+
+  .panel{position:absolute;bottom:16px;right:16px;background:var(--panel-bg);border:1px solid rgba(232,163,61,.35);padding:9px 14px;backdrop-filter:blur(2px);min-width:150px;}
+  .eyebrow{font-size:10px;letter-spacing:2px;color:var(--accent);text-transform:uppercase;display:flex;align-items:center;gap:6px;}
+  .eyebrow .dot{width:6px;height:6px;border-radius:50%;background:#ff5c4d;animation:blink 1.6s infinite;}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+  .coords{margin-top:6px;font-size:13px;color:var(--text-main);letter-spacing:.5px;line-height:1.6;}
+  .coords span{color:var(--text-dim);}
+
+  .cycle-row{margin-top:8px;}
+  .cycle-phase{display:block;font-size:10px;letter-spacing:1.5px;color:var(--accent);text-transform:uppercase;margin-bottom:5px;}
+  .cycle-bar{position:relative;width:132px;height:6px;border-radius:3px;background:linear-gradient(to right,
+    #131a3d 0%, #131a3d 18%,
+    #ff9450 25%,
+    #ffe9bd 32%,
+    #ffe9bd 68%,
+    #ff5a3c 75%,
+    #131a3d 82%, #131a3d 100%);
+    box-shadow:inset 0 0 0 1px rgba(232,163,61,.35);
+  }
+  .cycle-marker{position:absolute;top:50%;width:8px;height:8px;border-radius:50%;background:#EDE8DC;border:1.5px solid #11140d;transform:translate(-50%,-50%);left:32%;}
+
+  .stat-row{margin-top:8px;}
+  .stat-row label{display:flex;justify-content:space-between;font-size:10px;letter-spacing:1px;color:var(--text-dim);text-transform:uppercase;margin-bottom:4px;}
+  .stat-row label span.val{color:var(--accent);}
+  .stat-bar{position:relative;width:132px;height:6px;border-radius:3px;background:rgba(255,255,255,.08);box-shadow:inset 0 0 0 1px rgba(232,163,61,.35);overflow:hidden;}
+  .stat-fill{position:absolute;top:0;left:0;height:100%;width:100%;border-radius:3px;background:#6fae4f;transition:width .3s linear, background-color .3s linear;}
+
+  .xp-row{margin-top:8px;}
+  .xp-row label{display:flex;justify-content:space-between;font-size:10px;letter-spacing:1px;color:var(--text-dim);text-transform:uppercase;margin-bottom:4px;}
+  .xp-row label span.val{color:var(--accent);}
+  .xp-bar{position:relative;width:132px;height:6px;border-radius:3px;background:rgba(255,255,255,.08);box-shadow:inset 0 0 0 1px rgba(232,163,61,.35);overflow:hidden;}
+  .xp-fill{position:absolute;top:0;left:0;height:100%;width:0%;border-radius:3px;background:linear-gradient(90deg,var(--accent-dim),var(--accent));transition:width .25s ease-out;}
+
+  .street-toast{position:absolute;top:18px;left:50%;transform:translateX(-50%) translateY(-14px);background:var(--panel-bg);border:1px solid rgba(232,163,61,.55);color:var(--accent);font-size:14px;letter-spacing:1px;padding:9px 20px;white-space:nowrap;opacity:0;transition:opacity .35s ease, transform .35s ease;pointer-events:none;z-index:15;}
+  .street-toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  .npc-toast{position:absolute;bottom:210px;left:50%;transform:translateX(-50%) translateY(10px);max-width:min(340px,82vw);background:var(--panel-bg);border:1px solid rgba(232,163,61,.55);color:var(--text-main);font-size:13px;line-height:1.5;letter-spacing:.3px;padding:11px 18px;text-align:center;opacity:0;transition:opacity .3s ease, transform .3s ease;pointer-events:none;z-index:16;}
+  .npc-toast::before{content:'\201C';color:var(--accent);font-size:16px;margin-right:2px;}
+  .npc-toast::after{content:'\201D';color:var(--accent);font-size:16px;margin-left:2px;}
+  .npc-toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  .panel-r{position:absolute;top:16px;right:58px;background:var(--panel-bg);border:1px solid rgba(232,163,61,.35);padding:9px 14px;backdrop-filter:blur(2px);text-align:right;}
+  .panel-r .eyebrow{justify-content:flex-end;}
+
+  .minimap{position:absolute;top:16px;left:58px;width:140px;height:140px;border-radius:50%;background:radial-gradient(circle, rgba(22,26,17,.9), rgba(8,10,6,.95));border:1px solid rgba(232,163,61,.4);overflow:hidden;}
+  .minimap canvas{width:100%;height:100%;display:block;}
+  .sweep{position:absolute;inset:0;background:conic-gradient(from 0deg, rgba(232,163,61,.3), transparent 35%);border-radius:50%;animation:spin 4s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .hint{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);font-size:12px;color:var(--text-dim);letter-spacing:1px;background:var(--panel-bg);padding:7px 16px;border:1px solid rgba(232,163,61,.25);transition:opacity .8s ease;white-space:nowrap;}
+  .hint.hidden{opacity:0;}
+
+  .joystick-zone{position:absolute;bottom:34px;left:34px;width:118px;height:118px;display:none;touch-action:none;pointer-events:auto;}
+  @media (pointer:coarse){ .joystick-zone{display:block;} }
+  .joystick-base{position:absolute;inset:0;border-radius:50%;background:rgba(20,23,17,.55);border:1px solid rgba(232,163,61,.45);backdrop-filter:blur(1px);}
+  .joystick-knob{position:absolute;top:50%;left:50%;width:46px;height:46px;border-radius:50%;background:rgba(232,163,61,.85);border:1px solid rgba(255,255,255,.3);transform:translate(-50%,-50%);box-shadow:0 2px 6px rgba(0,0,0,.4);}
+
+  .action-btn{position:absolute;bottom:172px;left:50%;transform:translateX(-50%);display:none;align-items:center;justify-content:center;padding:9px 22px;background:var(--panel-bg);border:1px solid rgba(232,163,61,.55);color:var(--accent);font-size:12px;letter-spacing:1.5px;pointer-events:auto;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;}
+  .action-btn:active{background:rgba(232,163,61,.28);}
+
+  .steer-controls, .pedal-controls{position:absolute;bottom:34px;display:none;gap:8px;pointer-events:auto;}
+  .steer-controls{left:14px;width:104px;height:118px;}
+  .pedal-controls{right:210px;width:70px;height:118px;flex-direction:column;}
+  .ctrl-btn{flex:1;display:flex;align-items:center;justify-content:center;background:rgba(20,23,17,.65);border:1px solid rgba(232,163,61,.45);color:var(--accent);font-size:20px;border-radius:6px;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:none;padding:0;}
+  .ctrl-btn:active{background:rgba(232,163,61,.3);}
+  .gas-btn{font-size:22px;}
+
+  .steer-controls.editing, .pedal-controls.editing{outline:2px dashed var(--accent);outline-offset:4px;border-radius:8px;}
+  .steer-controls.editing .ctrl-btn, .pedal-controls.editing .ctrl-btn{pointer-events:none;}
+  .steer-controls.dragging, .pedal-controls.dragging{outline-color:#fff;}
+
+  .settings-btn{position:absolute;top:14px;right:14px;width:32px;height:32px;background:var(--panel-bg);border:1px solid rgba(232,163,61,.55);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;pointer-events:auto;-webkit-tap-highlight-color:transparent;z-index:20;}
+  .settings-btn:active{background:rgba(232,163,61,.3);}
+
+  .settings-panel{position:absolute;top:54px;right:14px;width:250px;max-width:82vw;max-height:80vh;overflow-y:auto;background:rgba(15,17,13,0.96);border:1px solid rgba(232,163,61,.5);box-shadow:0 10px 34px rgba(0,0,0,.5);display:none;pointer-events:auto;z-index:20;}
+  .settings-panel.open{display:block;}
+  .settings-body{padding:16px;}
+  .settings-hint{font-size:10.5px;color:var(--text-dim);line-height:1.6;margin-bottom:14px;letter-spacing:.3px;}
+  .settings-section-title{font-size:10px;color:var(--accent);letter-spacing:1.6px;margin-bottom:10px;opacity:.85;}
+  .settings-section + .settings-section{margin-top:18px;padding-top:16px;border-top:1px solid rgba(232,163,61,.22);}
+  .settings-row{margin-bottom:14px;}
+  .settings-row label{display:flex;justify-content:space-between;font-size:11px;color:var(--text-main);letter-spacing:.5px;margin-bottom:6px;}
+  .settings-row label span.val{color:var(--accent);}
+  .settings-row input[type=range]{width:100%;accent-color:var(--accent);}
+  .settings-reset{width:100%;padding:8px;background:none;border:1px solid rgba(232,163,61,.45);color:var(--accent);font-family:inherit;font-size:11px;letter-spacing:1px;cursor:pointer;}
+  .settings-reset:active{background:rgba(232,163,61,.25);}
+  .settings-btn-row{display:flex;gap:8px;}
+  .settings-btn-row .settings-reset{flex:1;}
+  .settings-pause-btn{background:rgba(232,163,61,.16);}
+  .settings-pause-btn.is-paused{background:var(--accent);color:#11140d;font-weight:700;}
+  .settings-reset.danger{border-color:rgba(201,79,61,.6);color:#c94f3d;}
+  .settings-reset.danger:active{background:rgba(201,79,61,.25);}
+  .settings-save-msg{font-size:10px;color:var(--accent);letter-spacing:.4px;text-align:center;margin-top:8px;min-height:12px;opacity:0;transition:opacity .25s;}
+  .settings-save-msg.show{opacity:1;}
+  .settings-toggle-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+  .settings-toggle-row span{font-size:11px;color:var(--text-main);letter-spacing:.5px;}
+  .settings-switch{position:relative;width:38px;height:20px;background:rgba(255,255,255,.12);border:1px solid rgba(232,163,61,.4);border-radius:10px;cursor:pointer;flex-shrink:0;}
+  .settings-switch::after{content:'';position:absolute;top:1px;left:1px;width:16px;height:16px;border-radius:50%;background:var(--text-dim);transition:transform .15s, background .15s;}
+  .settings-switch.on{background:rgba(232,163,61,.35);}
+  .settings-switch.on::after{transform:translateX(18px);background:var(--accent);}
+
+  .pause-overlay{position:fixed;inset:0;z-index:15;display:none;align-items:center;justify-content:center;background:rgba(8,10,6,0.5);backdrop-filter:blur(1.5px);pointer-events:none;}
+  .pause-overlay.show{display:flex;}
+  .pause-overlay-text{font-size:clamp(20px,6vw,32px);letter-spacing:8px;font-weight:700;color:var(--text-main);text-shadow:0 2px 12px rgba(0,0,0,.6);}
+  .pause-overlay-text span{color:var(--accent);}
+
+  .shop-modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(8,10,6,0.55);z-index:50;pointer-events:auto;}
+  .shop-modal.open{display:flex;}
+  .shop-panel{width:min(320px,86vw);background:rgba(15,17,13,0.96);border:1px solid rgba(232,163,61,.5);box-shadow:0 10px 34px rgba(0,0,0,.5);}
+  .shop-header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(232,163,61,.3);}
+  .shop-header-title{display:flex;flex-direction:column;gap:3px;}
+  .shop-balance{font-size:10px;color:#5ec4ff;letter-spacing:.5px;}
+
+  .office-job{display:flex;flex-direction:column;gap:12px;padding:6px 2px 2px;}
+  .office-job-label{color:var(--text-main);font-size:12.5px;letter-spacing:.5px;text-align:center;}
+  .office-job-pay{color:#5ec4ff;font-size:11px;text-align:center;letter-spacing:.3px;}
+  .office-game{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+  .office-tile{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:20px;background:rgba(94,196,255,.06);border:1px solid rgba(94,196,255,.25);border-radius:8px;color:var(--text-dim);cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;transition:background .1s,border-color .1s;}
+  .office-tile.active{background:rgba(94,196,255,.4);border-color:#5ec4ff;color:#eaf6ff;}
+  .office-tile.hit{background:rgba(120,255,150,.45);border-color:#7dffb0;color:#eaffef;}
+  .office-progress{width:100%;height:10px;background:rgba(255,255,255,.08);border:1px solid rgba(232,163,61,.3);border-radius:6px;overflow:hidden;}
+  .office-progress-fill{height:100%;width:0%;background:#5ec4ff;}
+  .office-msg{font-size:10.5px;color:var(--text-dim);text-align:center;letter-spacing:.3px;min-height:14px;}
+  .office-work-btn{background:none;border:1px solid rgba(232,163,61,.6);color:var(--accent);font-family:inherit;font-size:12px;letter-spacing:1.5px;padding:10px;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+  .office-work-btn:active{background:rgba(232,163,61,.25);}
+  .office-work-btn:disabled{opacity:.5;cursor:default;}
+  .bank-summary{display:flex;flex-direction:column;gap:6px;background:rgba(94,196,255,.06);border:1px solid rgba(94,196,255,.25);border-radius:8px;padding:10px 12px;margin-bottom:12px;}
+  .bank-summary-row{display:flex;justify-content:space-between;font-size:12px;letter-spacing:.4px;color:var(--text-main);}
+  .bank-summary-row span:last-child{color:#5ec4ff;}
+  .bank-tabs{display:flex;gap:8px;margin-bottom:12px;}
+  .bank-tab{flex:1;padding:9px;background:none;border:1px solid rgba(232,163,61,.4);color:var(--text-dim);font-family:inherit;font-size:11.5px;letter-spacing:1px;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+  .bank-tab.active{background:rgba(232,163,61,.2);border-color:var(--accent);color:var(--accent);}
+  .bank-amount-row{margin-bottom:10px;}
+  .bank-amount-input{width:100%;padding:9px 10px;background:rgba(255,255,255,.05);border:1px solid rgba(232,163,61,.35);color:var(--text-main);font-family:inherit;font-size:13px;letter-spacing:.5px;}
+  .bank-amount-input:focus{outline:none;border-color:var(--accent);}
+  .bank-quick-row{display:flex;gap:8px;margin-bottom:14px;}
+  .bank-quick-btn{flex:1;padding:7px;background:none;border:1px solid rgba(232,163,61,.35);color:var(--accent);font-family:inherit;font-size:11px;letter-spacing:.5px;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+  .bank-quick-btn:active{background:rgba(232,163,61,.25);}
+  .shop-header span{color:var(--accent);font-size:12px;letter-spacing:2.5px;}
+  .shop-close{background:none;border:none;color:var(--text-dim);font-size:20px;line-height:1;cursor:pointer;padding:0 4px;}
+  .shop-close:hover{color:var(--accent);}
+  .shop-body{padding:26px 18px;}
+  .shop-empty{color:var(--text-dim);font-size:12px;text-align:center;line-height:1.8;letter-spacing:.5px;border:1px dashed rgba(232,163,61,.3);padding:22px 12px;}
+  .shop-closed-note{color:var(--text-dim);font-size:10.5px;text-align:center;line-height:1.6;letter-spacing:.3px;padding:0 4px 14px;}
+  .shop-item{display:flex;flex-direction:column;align-items:flex-start;gap:3px;width:100%;background:rgba(232,163,61,.06);border:1px solid rgba(232,163,61,.3);color:var(--text-main);font-family:inherit;padding:10px 12px;margin-bottom:8px;cursor:pointer;text-align:left;-webkit-tap-highlight-color:transparent;}
+  .shop-item:last-child{margin-bottom:0;}
+  .shop-item:hover{border-color:var(--accent);background:rgba(232,163,61,.14);}
+  .shop-item:active{background:rgba(232,163,61,.25);}
+  .shop-item-name{font-size:12.5px;letter-spacing:.5px;}
+  .shop-item-stats{font-size:10.5px;color:var(--accent);letter-spacing:.5px;}
+  .shop-item.used{opacity:.35;cursor:default;pointer-events:none;}
+  .shop-item.used .shop-item-stats{color:var(--text-dim);}
+  .shop-item.flash-full{animation:flashFull .4s ease;}
+  @keyframes flashFull{0%,100%{border-color:rgba(232,163,61,.3)}50%{border-color:#c94f3d}}
+
+  .hotbar{position:absolute;bottom:64px;left:50%;transform:translateX(-50%);display:flex;gap:8px;pointer-events:auto;z-index:12;}
+  .hotbar-slot{position:relative;width:58px;height:58px;background:var(--panel-bg);border:1px dashed rgba(232,163,61,.35);display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:default;user-select:none;-webkit-tap-highlight-color:transparent;padding:4px 3px;text-align:center;}
+  .hotbar-slot.filled{border-style:solid;border-color:rgba(232,163,61,.6);cursor:pointer;}
+  .hotbar-slot.filled:active{background:rgba(232,163,61,.25);}
+  .hotbar-key{position:absolute;top:2px;left:4px;font-size:9px;color:var(--text-dim);letter-spacing:.5px;}
+  .hotbar-name{font-size:9px;color:var(--text-main);line-height:1.2;letter-spacing:.2px;word-break:break-word;margin-top:4px;}
+  @media (max-width:600px){
+    .hotbar-slot{width:48px;height:48px;}
+    .hotbar-name{font-size:8px;}
+  }
+
+  .phone-device{position:relative;width:230px;height:460px;max-height:82vh;background:#1b1d17;border:6px solid #0d0f0a;border-radius:32px;box-shadow:0 14px 40px rgba(0,0,0,.55);padding:10px;display:flex;flex-direction:column;}
+  .phone-notch{width:70px;height:16px;background:#0d0f0a;border-radius:0 0 10px 10px;margin:0 auto 6px;flex-shrink:0;}
+  .phone-screen{flex:1;background:#0f120c;border-radius:20px;padding:14px 12px;display:flex;flex-direction:column;overflow:hidden;border:1px solid rgba(232,163,61,.2);}
+  .phone-statusbar{display:flex;justify-content:space-between;font-size:11px;color:var(--text-dim);letter-spacing:.5px;margin-bottom:14px;flex-shrink:0;}
+  .phone-content{flex:1;display:flex;flex-direction:column;overflow-y:auto;}
+  .phone-content.phone-apps-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-content:start;}
+  .phone-app{display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+  .phone-app-icon{width:46px;height:46px;border-radius:12px;background:rgba(232,163,61,.07);border:1px dashed rgba(232,163,61,.35);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--text-dim);}
+  .phone-app:active .phone-app-icon{background:rgba(232,163,61,.2);}
+  .phone-app-name{font-size:9px;color:var(--text-dim);letter-spacing:.2px;text-align:center;line-height:1.2;}
+  .phone-shopapp-header{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--accent);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:14px;flex-shrink:0;}
+  .phone-back-btn{background:none;border:none;color:var(--accent);font-size:16px;line-height:1;cursor:pointer;padding:2px 6px 2px 0;-webkit-tap-highlight-color:transparent;}
+  .phone-shopapp-list{flex:1;display:flex;flex-direction:column;gap:8px;}
+  .phone-shopapp-empty{color:var(--text-dim);font-size:11px;text-align:center;line-height:1.7;letter-spacing:.3px;border:1px dashed rgba(232,163,61,.3);padding:22px 12px;margin-top:4px;}
+  .gps-hud{position:absolute;top:162px;left:58px;background:var(--panel-bg);border:1px solid rgba(94,196,255,.5);color:#5ec4ff;font-size:10.5px;letter-spacing:.4px;padding:6px 10px;display:none;align-items:center;gap:7px;pointer-events:none;white-space:nowrap;}
+  .gps-hud.show{display:flex;}
+  .gps-hud .arrow{font-size:16px;line-height:1;}
+
+  .phone-shopapp-row{display:flex;align-items:center;justify-content:space-between;background:rgba(232,163,61,.05);border:1px solid rgba(232,163,61,.25);padding:9px 10px;gap:8px;}
+  .phone-shopapp-row-info{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--text-main);letter-spacing:.3px;}
+  .phone-app-icon.small{width:28px;height:28px;border-radius:8px;font-size:14px;background:rgba(232,163,61,.1);border:1px solid rgba(232,163,61,.3);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .phone-download-btn{background:none;border:1px solid rgba(232,163,61,.5);color:var(--accent);font-family:inherit;font-size:10px;letter-spacing:.5px;padding:6px 10px;cursor:pointer;-webkit-tap-highlight-color:transparent;flex-shrink:0;}
+  .phone-download-btn:active{background:rgba(232,163,61,.25);}
+
+  .phone-gps-item{display:flex;justify-content:space-between;align-items:center;width:100%;background:rgba(94,196,255,.07);border:1px solid rgba(94,196,255,.3);color:var(--text-main);font-family:inherit;font-size:11.5px;letter-spacing:.3px;padding:9px 12px;cursor:pointer;text-align:left;-webkit-tap-highlight-color:transparent;}
+  .phone-gps-item:active{background:rgba(94,196,255,.2);}
+  .phone-gps-item .phone-gps-go{color:#5ec4ff;font-size:10px;letter-spacing:1px;}
+  .phone-gps-item.cancel{border-color:rgba(232,163,61,.4);color:var(--accent);justify-content:center;margin-bottom:4px;}
+
+  .phone-bank-card{background:linear-gradient(135deg, rgba(94,196,255,.14), rgba(94,196,255,.04));border:1px solid rgba(94,196,255,.4);border-radius:10px;padding:22px 16px;text-align:center;margin-top:10px;}
+  .phone-bank-label{font-size:10px;color:var(--text-dim);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px;}
+  .phone-bank-amount{font-size:26px;color:#5ec4ff;letter-spacing:.5px;font-weight:700;}
+  .phone-fine-title{font-size:10px;color:var(--text-dim);letter-spacing:1.5px;text-transform:uppercase;margin:18px 0 8px;}
+  .phone-fine-empty{color:var(--text-dim);font-size:11px;text-align:center;line-height:1.6;letter-spacing:.3px;border:1px dashed rgba(232,163,61,.3);padding:16px 12px;}
+  .phone-fine-item{display:flex;justify-content:space-between;align-items:center;gap:10px;background:rgba(233,90,90,.08);border:1px solid rgba(233,90,90,.35);border-radius:8px;padding:9px 12px;}
+  .phone-fine-info{display:flex;flex-direction:column;gap:3px;}
+  .phone-fine-desc{font-size:11.5px;color:var(--text-main);letter-spacing:.3px;}
+  .phone-fine-amount{font-size:12.5px;color:#ff8a75;font-weight:700;}
+  .phone-fine-pay-btn{flex-shrink:0;padding:7px 12px;background:none;border:1px solid rgba(233,90,90,.6);color:#ff8a75;font-family:inherit;font-size:10.5px;letter-spacing:1px;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+  .phone-fine-pay-btn:active{background:rgba(233,90,90,.25);}
+
+  .phone-msg{margin-top:10px;font-size:10px;color:var(--text-dim);text-align:center;letter-spacing:.3px;min-height:14px;flex-shrink:0;}
+  .phone-close{position:absolute;top:8px;right:8px;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.4);border:none;color:var(--accent);font-size:14px;cursor:pointer;line-height:1;z-index:2;-webkit-tap-highlight-color:transparent;}
+  .phone-close:active{background:rgba(232,163,61,.3);}
+
+  .gym-bonus-line{color:var(--text-main);font-size:11.5px;text-align:center;letter-spacing:.4px;margin-bottom:16px;}
+  .gym-bonus-line span#gymBonusVal{color:var(--accent);font-weight:600;}
+  .gym-bonus-cap{color:var(--text-dim);font-size:10px;}
+  .gym-track{position:relative;height:14px;background:rgba(232,163,61,.08);border:1px solid rgba(232,163,61,.3);margin-bottom:16px;overflow:hidden;}
+  .gym-zone{position:absolute;top:0;bottom:0;background:rgba(111,174,79,.55);border-left:1px solid rgba(111,174,79,.9);border-right:1px solid rgba(111,174,79,.9);}
+  .gym-marker{position:absolute;top:-2px;bottom:-2px;width:3px;background:var(--accent);box-shadow:0 0 6px rgba(232,163,61,.8);}
+  .gym-msg{color:var(--text-dim);font-size:10.5px;text-align:center;line-height:1.6;letter-spacing:.3px;margin-bottom:16px;min-height:32px;}
+  .gym-msg.success{color:#6fae4f;}
+  .gym-msg.fail{color:#c94f3d;}
+  .gym-hit-btn{display:block;width:100%;background:rgba(232,163,61,.12);border:1px solid rgba(232,163,61,.5);color:var(--accent);font-family:inherit;font-size:12.5px;letter-spacing:2px;padding:12px;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+  .gym-hit-btn:hover{background:rgba(232,163,61,.22);}
+  .gym-hit-btn:active{background:rgba(232,163,61,.32);}
+  .gym-hit-btn:disabled{opacity:.4;cursor:default;}
+
+  .fight-vs-row{display:flex;align-items:center;margin-bottom:16px;}
+  .fight-side{flex:1;}
+  .fight-side-label{font-size:10px;letter-spacing:1.5px;color:var(--text-dim);text-transform:uppercase;margin-bottom:6px;text-align:center;}
+  .fight-vs-text{font-size:13px;color:var(--accent);font-weight:700;padding:0 10px;}
+  .fight-hp-bar{position:relative;height:9px;border-radius:4px;background:rgba(255,255,255,.08);box-shadow:inset 0 0 0 1px rgba(232,163,61,.35);overflow:hidden;}
+  .fight-hp-fill{position:absolute;top:0;left:0;height:100%;border-radius:4px;background:#6fae4f;transition:width .25s ease-out;}
+  .fight-hp-fill.enemy{background:#c94f3d;}
+
+  @media (max-width:600px){
+    .panel-r{display:none;}
+    .minimap{width:100px;height:100px;}
+    .panel{font-size:11px;padding:7px 10px;}
+    .hint{font-size:10px;padding:6px 10px;}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .eyebrow .dot{animation:none;}
+    .sweep{animation:none;}
+  }
+</style>
+</head>
+<body>
+<canvas id="game" tabindex="0"></canvas>
+
+<div class="start-screen" id="startScreen">
+  <div class="start-title">STALK<span>.OW</span></div>
+  <div class="start-sub">Explor&aacute; el mapa, gan&aacute; plata y sobreviv&iacute; al ciclo de d&iacute;a y noche.</div>
+  <div class="start-loading" id="startLoading">
+    <div class="start-bar"><div class="start-bar-fill" id="startBarFill"></div></div>
+    <div class="start-status" id="startStatus">Generando el mapa...</div>
+  </div>
+  <button type="button" class="start-play-btn" id="startPlayBtn">JUGAR</button>
+</div>
+
+<div class="hud">
+
+  <div class="panel">
+    <div class="coords">
+      <span>FPS</span> <span id="fps">60</span>
+    </div>
+    <div class="coords" style="margin-top:6px;">
+      <span>Efectivo</span> <span id="cashHud">$0</span>
+    </div>
+    <div class="xp-row">
+      <label>Nivel <span class="val" id="levelVal">1</span></label>
+      <div class="xp-bar"><div class="xp-fill" id="xpFill"></div></div>
+    </div>
+    <div class="cycle-row">
+      <span class="cycle-phase" id="cyclePhase">D&iacute;a</span>
+      <div class="cycle-bar">
+        <div class="cycle-marker" id="cycleMarker"></div>
+      </div>
+    </div>
+    <div class="stat-row">
+      <label>Salud <span class="val" id="healthVal">100%</span></label>
+      <div class="stat-bar"><div class="stat-fill" id="healthFill"></div></div>
+    </div>
+    <div class="stat-row">
+      <label>Hambre <span class="val" id="hungerVal">100%</span></label>
+      <div class="stat-bar"><div class="stat-fill" id="hungerFill"></div></div>
+    </div>
+    <div class="stat-row">
+      <label>Sed <span class="val" id="thirstVal">100%</span></label>
+      <div class="stat-bar"><div class="stat-fill" id="thirstFill"></div></div>
+    </div>
+  </div>
+
+  <div class="street-toast" id="streetToast"></div>
+  <div class="npc-toast" id="npcToast"></div>
+
+  <button type="button" class="settings-btn" id="settingsBtn" aria-label="Ajustes">&#9881;</button>
+  <div class="pause-overlay" id="pauseOverlay">
+    <div class="pause-overlay-text">PAUSA<span>DO</span></div>
+  </div>
+  <div class="settings-panel" id="settingsPanel">
+    <div class="shop-header">
+      <span>AJUSTES</span>
+      <button type="button" class="shop-close" id="settingsClose" aria-label="Cerrar">&times;</button>
+    </div>
+    <div class="settings-body">
+
+      <div class="settings-section">
+        <div class="settings-section-title">JUEGO</div>
+        <div class="settings-btn-row">
+          <button type="button" class="settings-reset settings-pause-btn" id="pauseToggleBtn">Pausar</button>
+          <button type="button" class="settings-reset" id="manualSaveBtn">Guardar</button>
+        </div>
+        <div class="settings-save-msg" id="settingsSaveMsg">Partida guardada.</div>
+        <button type="button" class="settings-reset danger" id="newGameBtn" style="margin-top:10px;">Empezar de nuevo (prueba)</button>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">CONTROLES DE MANEJO</div>
+        <div class="settings-hint">Arrastra el volante o los pedales para moverlos. Usa los deslizadores para achicarlos o agrandarlos.</div>
+        <div class="settings-row">
+          <label>Tama&ntilde;o del volante <span class="val" id="steerSizeVal">100%</span></label>
+          <input type="range" id="steerSizeSlider" min="60" max="180" step="5" value="100">
+        </div>
+        <div class="settings-row">
+          <label>Tama&ntilde;o de pedales <span class="val" id="pedalSizeVal">100%</span></label>
+          <input type="range" id="pedalSizeSlider" min="60" max="180" step="5" value="100">
+        </div>
+        <button type="button" class="settings-reset" id="resetControlsBtn">Restablecer controles</button>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="minimap">
+    <canvas id="minimap" width="140" height="140"></canvas>
+    <div class="sweep"></div>
+  </div>
+
+  <div class="gps-hud" id="gpsHud"></div>
+
+  <div class="hotbar" id="hotbar">
+    <div class="hotbar-slot" data-slot="0"><span class="hotbar-key">1</span><span class="hotbar-name"></span></div>
+    <div class="hotbar-slot" data-slot="1"><span class="hotbar-key">2</span><span class="hotbar-name"></span></div>
+    <div class="hotbar-slot" data-slot="2"><span class="hotbar-key">3</span><span class="hotbar-name"></span></div>
+    <div class="hotbar-slot" data-slot="3"><span class="hotbar-key">4</span><span class="hotbar-name"></span></div>
+  </div>
+
+  <div class="hint" id="hint">WASD &nbsp;/&nbsp; &larr;&uarr;&darr;&rarr; &nbsp;&mdash;&nbsp; moverse</div>
+
+  <div class="joystick-zone" id="joystickZone">
+    <div class="joystick-base"></div>
+    <div class="joystick-knob" id="joystickKnob"></div>
+  </div>
+
+  <div class="steer-controls" id="steerControls">
+    <button type="button" class="ctrl-btn" id="steerLeftBtn">&larr;</button>
+    <button type="button" class="ctrl-btn" id="steerRightBtn">&rarr;</button>
+  </div>
+
+  <div class="pedal-controls" id="pedalControls">
+    <button type="button" class="ctrl-btn gas-btn" id="gasBtn">&uarr;</button>
+    <button type="button" class="ctrl-btn" id="brakeBtn">&darr;</button>
+  </div>
+
+  <div class="action-btn" id="actionBtn">SUBIR</div>
+</div>
+
+<div class="shop-modal" id="shopModal">
+  <div class="shop-panel">
+    <div class="shop-header">
+      <div class="shop-header-title"><span>Tienda</span><span class="shop-balance" id="shopBalance"></span></div>
+      <button class="shop-close" id="shopClose" aria-label="Cerrar">&times;</button>
+    </div>
+    <div class="shop-body" id="shopBody">
+      <div class="shop-empty">Sin art&iacute;culos por ahora.<br>Vuelve pronto.</div>
+    </div>
+  </div>
+</div>
+
+<div class="shop-modal" id="gymModal">
+  <div class="shop-panel">
+    <div class="shop-header">
+      <div class="shop-header-title"><span>Gym</span><span class="shop-balance" id="gymBalance"></span></div>
+      <button class="shop-close" id="gymClose" aria-label="Cerrar">&times;</button>
+    </div>
+    <div class="shop-body" id="gymBody">
+      <div class="gym-bonus-line">Bono de velocidad: <span id="gymBonusVal">+0%</span> <span class="gym-bonus-cap">(m&aacute;x. +30%)</span></div>
+      <div class="gym-track" id="gymTrack">
+        <div class="gym-zone" id="gymZone"></div>
+        <div class="gym-marker" id="gymMarker"></div>
+      </div>
+      <div class="gym-msg" id="gymMsg">Toca "GOLPEAR" cuando el marcador pase por la zona verde.</div>
+      <button type="button" class="gym-hit-btn" id="gymHitBtn">GOLPEAR</button>
+    </div>
+  </div>
+</div>
+
+<div class="shop-modal" id="fightModal">
+  <div class="shop-panel">
+    <div class="shop-header">
+      <div class="shop-header-title"><span id="fightTitle">&iexcl;Un ladr&oacute;n te alcanz&oacute;!</span></div>
+    </div>
+    <div class="shop-body" id="fightBody">
+      <div class="fight-vs-row">
+        <div class="fight-side">
+          <div class="fight-side-label">Vos</div>
+          <div class="fight-hp-bar"><div class="fight-hp-fill" id="fightPlayerHp" style="width:100%"></div></div>
+        </div>
+        <div class="fight-vs-text">VS</div>
+        <div class="fight-side">
+          <div class="fight-side-label" id="fightEnemyLabel">Ladr&oacute;n</div>
+          <div class="fight-hp-bar"><div class="fight-hp-fill enemy" id="fightEnemyHp" style="width:100%"></div></div>
+        </div>
+      </div>
+      <div class="gym-track" id="fightTrack">
+        <div class="gym-zone" id="fightZone"></div>
+        <div class="gym-marker" id="fightMarker"></div>
+      </div>
+      <div class="gym-msg" id="fightMsg">Toc&aacute; "GOLPEAR" cuando el marcador pase por la zona verde.</div>
+      <button type="button" class="gym-hit-btn" id="fightHitBtn">GOLPEAR</button>
+    </div>
+  </div>
+</div>
+
+<div class="shop-modal" id="officeModal">
+  <div class="shop-panel">
+    <div class="shop-header">
+      <div class="shop-header-title"><span>Oficina</span><span class="shop-balance" id="officeBalance"></span></div>
+      <button class="shop-close" id="officeClose" aria-label="Cerrar">&times;</button>
+    </div>
+    <div class="shop-body" id="officeBody">
+      <div class="office-job">
+        <div class="office-job-label">Empleo: Oficinista</div>
+        <div class="office-job-pay">Pago por documento: $<span id="officePay"></span></div>
+        <div class="office-game" id="officeGame"></div>
+        <div class="office-progress"><div class="office-progress-fill" id="officeProgressFill"></div></div>
+        <div class="office-msg" id="officeMsg">Toca "TRABAJAR" para empezar tu turno.</div>
+        <button type="button" class="office-work-btn" id="officeWorkBtn">TRABAJAR</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="shop-modal" id="bankModal">
+  <div class="shop-panel">
+    <div class="shop-header">
+      <div class="shop-header-title"><span>Banco</span></div>
+      <button class="shop-close" id="bankClose" aria-label="Cerrar">&times;</button>
+    </div>
+    <div class="shop-body" id="bankBody">
+      <div class="bank-summary">
+        <div class="bank-summary-row"><span>Efectivo</span><span id="bankCash">$0</span></div>
+        <div class="bank-summary-row"><span>En el banco</span><span id="bankSaved">$0</span></div>
+      </div>
+      <div class="bank-tabs">
+        <button type="button" class="bank-tab active" id="bankTabWithdraw">Retirar</button>
+        <button type="button" class="bank-tab" id="bankTabDeposit">Depositar</button>
+      </div>
+      <div class="bank-amount-row">
+        <input type="number" id="bankAmountInput" class="bank-amount-input" min="1" step="1" placeholder="Monto" inputmode="numeric">
+      </div>
+      <div class="bank-quick-row">
+        <button type="button" class="bank-quick-btn" data-amt="25">$25</button>
+        <button type="button" class="bank-quick-btn" data-amt="100">$100</button>
+        <button type="button" class="bank-quick-btn" data-amt="max">M&aacute;ximo</button>
+      </div>
+      <button type="button" class="office-work-btn" id="bankConfirmBtn">RETIRAR</button>
+      <div class="office-msg" id="bankMsg"></div>
+    </div>
+  </div>
+</div>
+
+<div class="shop-modal" id="phoneModal">
+  <div class="phone-device">
+    <button class="phone-close" id="phoneClose" aria-label="Cerrar">&times;</button>
+    <div class="phone-notch"></div>
+    <div class="phone-screen">
+      <div class="phone-statusbar">
+        <span id="phoneClock">--:--</span>
+        <span>&#128246; &#128267;</span>
+      </div>
+      <div class="phone-content" id="phoneContent"></div>
+      <div class="phone-msg" id="phoneMsg"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- Setup ----------
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const minimapCanvas = document.getElementById('minimap');
+  const mctx = minimapCanvas.getContext('2d');
+  const cashHudEl = document.getElementById('cashHud');
+  const levelValEl = document.getElementById('levelVal');
+  const xpFillEl = document.getElementById('xpFill');
+  const hintEl = document.getElementById('hint');
+  const fpsEl = document.getElementById('fps');
+  const streetToastEl = document.getElementById('streetToast');
+  const npcToastEl = document.getElementById('npcToast');
+  const cyclePhaseEl = document.getElementById('cyclePhase');
+  const cycleMarkerEl = document.getElementById('cycleMarker');
+  const hungerFillEl = document.getElementById('hungerFill');
+  const thirstFillEl = document.getElementById('thirstFill');
+  const hungerValEl = document.getElementById('hungerVal');
+  const thirstValEl = document.getElementById('thirstVal');
+  const healthFillEl = document.getElementById('healthFill');
+  const healthValEl = document.getElementById('healthVal');
+  const actionBtn = document.getElementById('actionBtn');
+  const shopModal = document.getElementById('shopModal');
+  const shopClose = document.getElementById('shopClose');
+  const shopBodyEl = document.getElementById('shopBody');
+  const shopBalanceEl = document.getElementById('shopBalance');
+  const fightModal = document.getElementById('fightModal');
+  const fightTitleEl = document.getElementById('fightTitle');
+  const fightEnemyLabelEl = document.getElementById('fightEnemyLabel');
+  const fightPlayerHpEl = document.getElementById('fightPlayerHp');
+  const fightEnemyHpEl = document.getElementById('fightEnemyHp');
+  const fightZoneEl = document.getElementById('fightZone');
+  const fightMarkerEl = document.getElementById('fightMarker');
+  const fightMsgEl = document.getElementById('fightMsg');
+  const fightHitBtn = document.getElementById('fightHitBtn');
+  const gymModal = document.getElementById('gymModal');
+  const gymClose = document.getElementById('gymClose');
+  const gymBonusValEl = document.getElementById('gymBonusVal');
+  const gymBalanceEl = document.getElementById('gymBalance');
+  const gymTrackEl = document.getElementById('gymTrack');
+  const gymZoneEl = document.getElementById('gymZone');
+  const gymMarkerEl = document.getElementById('gymMarker');
+  const gymMsgEl = document.getElementById('gymMsg');
+  const gymHitBtn = document.getElementById('gymHitBtn');
+  const officeModal = document.getElementById('officeModal');
+  const officeClose = document.getElementById('officeClose');
+  const officeBalanceEl = document.getElementById('officeBalance');
+  const officeWorkBtn = document.getElementById('officeWorkBtn');
+  const officeProgressFillEl = document.getElementById('officeProgressFill');
+  const officeMsgEl = document.getElementById('officeMsg');
+  const officePayEl = document.getElementById('officePay');
+  const bankModal = document.getElementById('bankModal');
+  const bankClose = document.getElementById('bankClose');
+  const bankCashEl = document.getElementById('bankCash');
+  const bankSavedEl = document.getElementById('bankSaved');
+  const bankTabWithdraw = document.getElementById('bankTabWithdraw');
+  const bankTabDeposit = document.getElementById('bankTabDeposit');
+  const bankAmountInput = document.getElementById('bankAmountInput');
+  const bankConfirmBtn = document.getElementById('bankConfirmBtn');
+  const bankMsgEl = document.getElementById('bankMsg');
+  const officeGameEl = document.getElementById('officeGame');
+  const phoneModal = document.getElementById('phoneModal');
+  const phoneClose = document.getElementById('phoneClose');
+  const phoneContentEl = document.getElementById('phoneContent');
+  const phoneMsgEl = document.getElementById('phoneMsg');
+  const phoneClockEl = document.getElementById('phoneClock');
+  const gpsHudEl = document.getElementById('gpsHud');
+  const hotbarSlotEls = Array.from(document.querySelectorAll('.hotbar-slot'));
+  const steerControls = document.getElementById('steerControls');
+  const pedalControls = document.getElementById('pedalControls');
+  const steerLeftBtn = document.getElementById('steerLeftBtn');
+  const steerRightBtn = document.getElementById('steerRightBtn');
+  const gasBtn = document.getElementById('gasBtn');
+  const brakeBtn = document.getElementById('brakeBtn');
+  const settingsBtn = document.getElementById('settingsBtn');
+  const settingsPanel = document.getElementById('settingsPanel');
+  const settingsClose = document.getElementById('settingsClose');
+  const steerSizeSlider = document.getElementById('steerSizeSlider');
+  const pedalSizeSlider = document.getElementById('pedalSizeSlider');
+  const steerSizeVal = document.getElementById('steerSizeVal');
+  const pedalSizeVal = document.getElementById('pedalSizeVal');
+  const resetControlsBtn = document.getElementById('resetControlsBtn');
+  const pauseOverlayEl = document.getElementById('pauseOverlay');
+  const pauseToggleBtn = document.getElementById('pauseToggleBtn');
+  const manualSaveBtn = document.getElementById('manualSaveBtn');
+  const newGameBtn = document.getElementById('newGameBtn');
+  const settingsSaveMsgEl = document.getElementById('settingsSaveMsg');
+  const startScreenEl = document.getElementById('startScreen');
+  const startBarFillEl = document.getElementById('startBarFill');
+  const startStatusEl = document.getElementById('startStatus');
+  const startPlayBtnEl = document.getElementById('startPlayBtn');
+
+  const WORLD_W = 3200, WORLD_H = 3200;
+  const ROAD_WIDTH = 90;
+  const SIDEWALK_WIDTH = 26;
+  const ROAD_LINES = [400, 900, 1400, 1900, 2400, 2900];
+
+  // líneas donde caminan las veredas (centro de cada franja, a ambos lados de cada calle)
+  const SIDEWALK_LINE_OFFSET = ROAD_WIDTH/2 + SIDEWALK_WIDTH/2;
+  const SIDEWALK_V_LINES = []; // veredas verticales: x fija, se camina en y
+  const SIDEWALK_H_LINES = []; // veredas horizontales: y fija, se camina en x
+  for(const l of ROAD_LINES){
+    SIDEWALK_V_LINES.push(l - SIDEWALK_LINE_OFFSET, l + SIDEWALK_LINE_OFFSET);
+    SIDEWALK_H_LINES.push(l - SIDEWALK_LINE_OFFSET, l + SIDEWALK_LINE_OFFSET);
+  }
+
+  // ---------- Ciclo de d\u00eda y noche ----------
+  const DAY_LENGTH = 320; // segundos que dura la parte activa del ciclo (d\u00eda m\u00e1s largo)
+  let dayTime = 0.34; // arranca de d\u00eda
+  const NIGHT_FREEZE_T = 0.85; // al llegar aqu\u00ed la noche se congela hasta que el jugador duerma
+  const SLEEP_WAKE_T = 0.22;   // hora a la que se despierta (amanecer) al dormir
+  let nightFrozen = false;
+  // Puntos clave del ciclo (0 a 1): color de superposici\u00f3n y transparencia
+  const DAY_KEYFRAMES = [
+    { t: 0.00, r: 5, g: 7, b: 22, a: 0.74 },  // noche
+    { t: 0.20, r: 5, g: 7, b: 22, a: 0.74 },  // noche
+    { t: 0.28, r: 255, g: 148, b: 80, a: 0.30 }, // amanecer (pico calido)
+    { t: 0.36, r: 255, g: 214, b: 170, a: 0.0 }, // dia pleno
+    { t: 0.70, r: 255, g: 214, b: 170, a: 0.0 }, // dia pleno (extendido)
+    { t: 0.78, r: 255, g: 90, b: 55, a: 0.32 },  // atardecer (pico calido)
+    { t: 0.85, r: 5, g: 7, b: 22, a: 0.74 },  // noche
+    { t: 1.00, r: 5, g: 7, b: 22, a: 0.74 }   // noche (cierra el ciclo)
+  ];
+
+  function dayNightColor(t){
+    for(let i = 0; i < DAY_KEYFRAMES.length - 1; i++){
+      const a = DAY_KEYFRAMES[i], b = DAY_KEYFRAMES[i + 1];
+      if(t >= a.t && t <= b.t){
+        const span = b.t - a.t || 1;
+        const f = (t - a.t) / span;
+        return {
+          r: a.r + (b.r - a.r) * f,
+          g: a.g + (b.g - a.g) * f,
+          b: a.b + (b.b - a.b) * f,
+          a: a.a + (b.a - a.a) * f
+        };
+      }
+    }
+    return DAY_KEYFRAMES[DAY_KEYFRAMES.length - 1];
+  }
+
+  function dayPhaseName(t){
+    if(t >= 0.20 && t < 0.32) return 'Amanecer';
+    if(t >= 0.32 && t < 0.75) return 'D\u00eda';
+    if(t >= 0.75 && t < 0.85) return 'Atardecer';
+    return 'Noche';
+  }
+
+  function isNight(){
+    return dayPhaseName(dayTime) === 'Noche';
+  }
+  let lightSources = [];
+
+  function updateDayNight(dt){
+    if(nightFrozen) return; // la noche no avanza hasta que el jugador duerma
+    dayTime += dt / DAY_LENGTH;
+    if(dayTime >= NIGHT_FREEZE_T){
+      dayTime = NIGHT_FREEZE_T;
+      nightFrozen = true;
+    }
+  }
+
+  // ---------- Hambre y sed (bajan proceduralmente con el tiempo) ----------
+  let hunger = 100;
+  let thirst = 100;
+  const HUNGER_TIME = 960; // segundos para vaciarse del todo
+  const THIRST_TIME = 600; // la sed baja m\u00e1s r\u00e1pido que el hambre
+
+  // ---------- Salud (baja por ataques en barrios peligrosos, se regenera sola) ----------
+  let health = 100;
+  const HEALTH_REGEN_PER_SEC = 100 / 240; // se recupera del todo en ~4 minutos si no te atacan
+
+  // ---------- Dinero del jugador ----------
+  let playerMoney = 100;
+  let bankBalance = 0;
+
+  // ---------- Nivel y experiencia ----------
+  // Fuentes de XP por defecto (ajustables): documentos de oficina, golpes de gym
+  // acertados, dormir (sobrevivir un dia completo), explorar (distancia recorrida
+  // a pie o en auto) y moverse de noche (bono de riesgo). El bono de nivel reduce
+  // el consumo de hambre/sed, asi que subir de nivel se traduce en sobrevivir mas
+  // facil con los mismos recursos.
+  let playerLevel = 1;
+  let playerXP = 0;
+  const LEVEL_HUNGER_THIRST_REDUCTION_PER_LEVEL = 0.02; // -2% de consumo por nivel
+  const LEVEL_HUNGER_THIRST_REDUCTION_CAP = 0.5;        // hasta -50% de consumo
+
+  function xpNeeded(level){
+    return 60 + (level - 1) * 35;
+  }
+
+  function updateLevelUI(){
+    levelValEl.textContent = playerLevel;
+    const pct = Math.min(100, (playerXP / xpNeeded(playerLevel)) * 100);
+    xpFillEl.style.width = pct + '%';
+  }
+
+  function gainXp(amount){
+    if(amount <= 0) return;
+    playerXP += amount;
+    let leveledUp = false;
+    while(playerXP >= xpNeeded(playerLevel)){
+      playerXP -= xpNeeded(playerLevel);
+      playerLevel++;
+      leveledUp = true;
+    }
+    if(leveledUp) showStreetToast('\u00a1Subiste a nivel ' + playerLevel + '!');
+    updateLevelUI();
+  }
+
+  function updateStats(dt){
+    const hungerMult = (!driving && player.moving) ? (1 + speedBonus) : 1;
+    const levelMult = Math.max(1 - LEVEL_HUNGER_THIRST_REDUCTION_CAP, 1 - (playerLevel - 1) * LEVEL_HUNGER_THIRST_REDUCTION_PER_LEVEL);
+    hunger = Math.max(0, hunger - (100 / HUNGER_TIME) * 1.1 * hungerMult * levelMult * dt);
+    thirst = Math.max(0, thirst - (100 / THIRST_TIME) * levelMult * dt);
+    health = Math.min(100, health + HEALTH_REGEN_PER_SEC * dt);
+  }
+
+  function statColor(v){
+    if(v > 55) return '#6fae4f';
+    if(v > 25) return '#E8A33D';
+    return '#c94f3d';
+  }
+
+  // ---------- Cat\u00e1logo de la tienda (solo abre de d\u00eda) ----------
+  const SHOP_PRODUCTS = [
+    { name: 'Agua embotellada', emoji: '\ud83d\udca7', hunger: 0,  thirst: 40, price: 5  },
+    { name: 'Refresco',         emoji: '\ud83e\udd64', hunger: 5,  thirst: 25, price: 8  },
+    { name: 'Pan',              emoji: '\ud83c\udf5e', hunger: 30, thirst: 0,  price: 10 },
+    { name: 'Lata de conservas',emoji: '\ud83e\udd6b', hunger: 45, thirst: 0,  price: 15 },
+    { name: 'Fruta fresca',     emoji: '\ud83c\udf4e', hunger: 15, thirst: 10, price: 7  },
+    { name: 'Jugo natural',     emoji: '\ud83e\uddc3', hunger: 5,  thirst: 35, price: 9  },
+    { name: 'Barra energ\u00e9tica', emoji: '\ud83c\udf6b', hunger: 50, thirst: 5,  price: 18 },
+    { name: 'Sopa enlatada',    emoji: '\ud83c\udf72', hunger: 25, thirst: 15, price: 14 }
+  ];
+  const SHOP_STOCK_SIZE = 4;
+  let currentShopStock = [];
+
+  function updateMoneyUI(){
+    const label = '$' + Math.floor(playerMoney).toLocaleString('es-ES');
+    if(shopBalanceEl) shopBalanceEl.textContent = label;
+    if(gymBalanceEl) gymBalanceEl.textContent = label;
+    if(officeBalanceEl) officeBalanceEl.textContent = label;
+    if(cashHudEl) cashHudEl.textContent = label;
+  }
+  updateMoneyUI();
+  updateLevelUI();
+
+  // ---------- Inventario (barra de 4 objetos) ----------
+  const INVENTORY_SIZE = 4;
+  const PHONE_SLOT = 3; // slot 4: siempre ocupado por el celular
+  const inventory = new Array(INVENTORY_SIZE).fill(null);
+  inventory[PHONE_SLOT] = { name: 'Celular', emoji: '\ud83d\udcf1', isPhone: true };
+
+  function updateHotbar(){
+    hotbarSlotEls.forEach((slotEl, i) => {
+      const item = inventory[i];
+      const nameEl = slotEl.querySelector('.hotbar-name');
+      if(item){
+        slotEl.classList.add('filled');
+        nameEl.textContent = item.emoji + ' ' + item.name;
+      } else {
+        slotEl.classList.remove('filled');
+        nameEl.textContent = '';
+      }
+    });
+  }
+
+  function addToInventory(product){
+    const idx = inventory.findIndex((s, i) => s === null && i !== PHONE_SLOT);
+    if(idx === -1) return false;
+    inventory[idx] = { name: product.name, emoji: product.emoji, hunger: product.hunger, thirst: product.thirst };
+    updateHotbar();
+    return true;
+  }
+
+  function consumeSlot(i){
+    const item = inventory[i];
+    if(!item) return;
+    if(item.isPhone){ openPhone(); return; }
+    hunger = Math.min(100, hunger + item.hunger);
+    thirst = Math.min(100, thirst + item.thirst);
+    inventory[i] = null;
+    updateHotbar();
+  }
+
+  hotbarSlotEls.forEach((slotEl, i) => {
+    slotEl.addEventListener('click', () => consumeSlot(i));
+  });
+  window.addEventListener('keydown', (e) => {
+    const num = ['Digit1','Digit2','Digit3','Digit4'].indexOf(e.code);
+    if(num !== -1 && !e.repeat) consumeSlot(num);
+  });
+  updateHotbar();
+
+  function isShopOpenHours(){
+    return dayPhaseName(dayTime) === 'D\u00eda';
+  }
+
+  function pickShopStock(){
+    const pool = SHOP_PRODUCTS.slice();
+    const picks = [];
+    const count = Math.min(SHOP_STOCK_SIZE, pool.length);
+    for(let i = 0; i < count; i++){
+      const idx = Math.floor(Math.random() * pool.length);
+      picks.push(pool.splice(idx, 1)[0]);
+    }
+    return picks;
+  }
+
+  function renderShop(){
+    if(!isShopOpenHours()){
+      shopBodyEl.innerHTML = '<div class="shop-empty">Cerrado por la noche.<br>Vuelve de d\u00eda.</div>';
+      return;
+    }
+    if(!currentShopStock.length){
+      shopBodyEl.innerHTML = '<div class="shop-empty">Sin art\u00edculos por ahora.<br>Vuelve pronto.</div>';
+      return;
+    }
+    shopBodyEl.innerHTML = '';
+    currentShopStock.forEach((p) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'shop-item';
+      const parts = [];
+      if(p.hunger > 0) parts.push('Hambre +' + p.hunger + '%');
+      if(p.thirst > 0) parts.push('Sed +' + p.thirst + '%');
+      parts.push('$' + p.price);
+      item.innerHTML = '<span class="shop-item-name">' + p.emoji + ' ' + p.name + '</span>' +
+        '<span class="shop-item-stats">' + parts.join(' \u00b7 ') + '</span>';
+      item.addEventListener('click', () => {
+        if(playerMoney < p.price){
+          item.classList.add('flash-full');
+          setTimeout(() => item.classList.remove('flash-full'), 400);
+          return;
+        }
+        const added = addToInventory(p);
+        if(!added){
+          item.classList.add('flash-full');
+          setTimeout(() => item.classList.remove('flash-full'), 400);
+          return;
+        }
+        playerMoney -= p.price;
+        updateMoneyUI();
+        item.classList.add('used');
+        item.disabled = true;
+      });
+      shopBodyEl.appendChild(item);
+    });
+  }
+
+  // Calles verticales (norte-sur, ubicadas en x = ROAD_LINES) y horizontales (este-oeste, en y = ROAD_LINES)
+  const STREET_NAMES_NS = ['Calle Alamo', 'Calle Ceibo', 'Av. Roble', 'Calle Jacaranda', 'Av. Sauce', 'Calle Fresno'];
+  const STREET_NAMES_EW = ['Av. Libertad', 'Calle Belgrano', 'Av. San Martin', 'Calle Mitre', 'Av. Independencia', 'Calle Rivadavia'];
+
+  function currentStreetName(x, y){
+    let bestV = { i: 0, d: Infinity }, bestH = { i: 0, d: Infinity };
+    for(let i = 0; i < ROAD_LINES.length; i++){
+      const dv = Math.abs(x - ROAD_LINES[i]);
+      if(dv < bestV.d) bestV = { i, d: dv };
+      const dh = Math.abs(y - ROAD_LINES[i]);
+      if(dh < bestH.d) bestH = { i, d: dh };
+    }
+    const onV = bestV.d <= ROAD_WIDTH/2 + 25;
+    const onH = bestH.d <= ROAD_WIDTH/2 + 25;
+    if(onV && onH) return STREET_NAMES_NS[bestV.i] + ' y ' + STREET_NAMES_EW[bestH.i];
+    if(onV) return STREET_NAMES_NS[bestV.i];
+    if(onH) return STREET_NAMES_EW[bestH.i];
+    return bestV.d < bestH.d ? STREET_NAMES_NS[bestV.i] : STREET_NAMES_EW[bestH.i];
+  }
+
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const viewport = { w: window.innerWidth, h: window.innerHeight };
+  const camera = { x: 0, y: 0 };
+
+  function resize(){
+    viewport.w = window.innerWidth;
+    viewport.h = window.innerHeight;
+    canvas.width = viewport.w * dpr;
+    canvas.height = viewport.h * dpr;
+    canvas.style.width = viewport.w + 'px';
+    canvas.style.height = viewport.h + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+
+  // ---------- Palette ----------
+  const PALETTE = {
+    grass: '#6B7A4F',
+    grassDark: '#5D6B44',
+    grassLight: '#7C8B5C',
+    road: '#47484A',
+    roadLine: '#C9C4AE',
+    sidewalk: '#9B9584',
+    sidewalkLine: '#847E6E',
+    driveway: '#8B8371',
+    roofs: ['#A85D48', '#5C6670', '#8C7355', '#4A5568', '#7A6248'],
+    treeCanopy: '#3D4A2A',
+    treeCanopyLight: '#55643A',
+    playerBody: '#E8A33D',
+    playerDark: '#B9791E'
+  };
+
+  function darken(hex, amt){
+    const n = parseInt(hex.slice(1), 16);
+    let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+    r = Math.max(0, Math.floor(r * (1 - amt)));
+    g = Math.max(0, Math.floor(g * (1 - amt)));
+    b = Math.max(0, Math.floor(b * (1 - amt)));
+    return `rgb(${r},${g},${b})`;
+  }
+
+  function distToNearestRoad(x, y){
+    let d = Infinity;
+    for(const lx of ROAD_LINES){ d = Math.min(d, Math.abs(x - lx) - ROAD_WIDTH/2); }
+    for(const ly of ROAD_LINES){ d = Math.min(d, Math.abs(y - ly) - ROAD_WIDTH/2); }
+    return d;
+  }
+
+  function rectsOverlap(a, b, pad){
+    return a.x < b.x + b.w + pad && a.x + a.w + pad > b.x &&
+           a.y < b.y + b.h + pad && a.y + a.h + pad > b.y;
+  }
+
+  // ---------- Semilla del mundo (mapa persistente entre sesiones) ----------
+  // Antes el mapa (casas, garages, arboles, casa del jugador, tienda/gym/
+  // oficina/banco) se generaba con Math.random() sin semilla: cada vez que
+  // se recargaba la pagina salia un mapa distinto, pero la posicion guardada
+  // del jugador y del auto seguian siendo coordenadas del mapa VIEJO. Por
+  // eso el jugador aparecia bajo una casa random y el auto no quedaba en el
+  // garage de su casa. Con una semilla fija guardada en localStorage, el
+  // mapa generado es siempre el mismo entre sesiones.
+  const WORLD_SEED_KEY = 'stalkow_world_seed_v1';
+  let resettingGame = false;
+  function mulberry32(seed){
+    let a = seed >>> 0;
+    return function(){
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  let worldSeed = parseInt(localStorage.getItem(WORLD_SEED_KEY), 10);
+  if(!Number.isFinite(worldSeed)){
+    worldSeed = (Math.random() * 4294967296) >>> 0;
+    try{ localStorage.setItem(WORLD_SEED_KEY, String(worldSeed)); }catch(e){}
+  }
+  const worldRandom = mulberry32(worldSeed);
+  const realMathRandom = Math.random.bind(Math);
+  Math.random = worldRandom; // se restaura apenas termina de generarse el mapa, mas abajo
+
+  // ---------- Procedural houses + garages (1 garage cada ~10 casas) ----------
+  const houses = [];
+  const garages = [];
+  let sinceGarage = 0;
+
+  function tryAttachGarage(house){
+    const gw = 46 + Math.random() * 10;
+    const gh = 50 + Math.random() * 12;
+    const sides = ['left', 'right', 'top', 'bottom'].sort(() => Math.random() - 0.5);
+    for(const side of sides){
+      let g;
+      if(side === 'left') g = { x: house.x - gw, y: house.y + (house.h - gh)/2, w: gw, h: gh, side };
+      else if(side === 'right') g = { x: house.x + house.w, y: house.y + (house.h - gh)/2, w: gw, h: gh, side };
+      else if(side === 'top') g = { x: house.x + (house.w - gw)/2, y: house.y - gh, w: gw, h: gh, side };
+      else g = { x: house.x + (house.w - gw)/2, y: house.y + house.h, w: gw, h: gh, side };
+
+      if(g.x < 10 || g.y < 10 || g.x + g.w > WORLD_W - 10 || g.y + g.h > WORLD_H - 10) continue;
+      if(distToNearestRoad(g.x + g.w/2, g.y + g.h/2) < 15) continue;
+
+      let overlap = false;
+      for(const other of houses){ if(other !== house && rectsOverlap(g, other, 8)){ overlap = true; break; } }
+      if(!overlap) for(const other of garages){ if(rectsOverlap(g, other, 8)){ overlap = true; break; } }
+      if(!overlap) return g;
+    }
+    return null;
+  }
+
+  (function generateHouses(){
+    const spacing = 150;
+    for(let gx = 60; gx < WORLD_W - 60; gx += spacing){
+      for(let gy = 60; gy < WORLD_H - 60; gy += spacing){
+        const cx = gx + (Math.random() - 0.5) * 60;
+        const cy = gy + (Math.random() - 0.5) * 60;
+        const d = distToNearestRoad(cx, cy);
+        if(d > 55 && d < 155 && Math.random() < 0.8){
+          const w = 70 + Math.random() * 40;
+          const h = 60 + Math.random() * 35;
+          const x = cx - w/2, y = cy - h/2;
+          let overlap = false;
+          for(const other of houses){
+            if(x < other.x + other.w + 22 && x + w + 22 > other.x &&
+               y < other.y + other.h + 22 && y + h + 22 > other.y){ overlap = true; break; }
+          }
+          if(!overlap){
+            const roof = PALETTE.roofs[Math.floor(Math.random() * PALETTE.roofs.length)];
+            const houseObj = { x, y, w, h, roof, wall: darken(roof, 0.35), hasLight: Math.random() < 0.4 };
+            houses.push(houseObj);
+            sinceGarage++;
+            if(sinceGarage >= 10){
+              const g = tryAttachGarage(houseObj);
+              if(g){ garages.push(g); g.house = houseObj; houseObj.garage = g; houseObj.hasGarage = true; sinceGarage = 0; }
+            }
+          }
+        }
+      }
+    }
+  })();
+
+  // ---------- Barrios peligrosos (riesgo de robo/ataque) ----------
+  // Dos zonas fijas en esquinas opuestas del mapa, lejos del cluster central
+  // (tienda/gym/oficina/banco) y de la casa del jugador, que se elige excluyendo
+  // estas zonas mas abajo.
+  const DANGER_ZONE_SIZE = 1300;
+  const DANGER_ZONE_INSET = 60;
+  const DANGER_ZONES = [
+    { x: WORLD_W - DANGER_ZONE_SIZE - DANGER_ZONE_INSET, y: DANGER_ZONE_INSET, w: DANGER_ZONE_SIZE, h: DANGER_ZONE_SIZE, name: 'El Descampado' },
+    { x: DANGER_ZONE_INSET, y: WORLD_H - DANGER_ZONE_SIZE - DANGER_ZONE_INSET, w: DANGER_ZONE_SIZE, h: DANGER_ZONE_SIZE, name: 'La Zona Muerta' }
+  ];
+  function dangerZoneAt(x, y){
+    return DANGER_ZONES.find(z => x >= z.x && x <= z.x + z.w && y >= z.y && y <= z.y + z.h) || null;
+  }
+  function isInDangerZone(x, y){
+    return !!dangerZoneAt(x, y);
+  }
+
+  // ---------- Casa del jugador (siempre tiene garage) ----------
+  let playerHouse = null;
+  (function choosePlayerHouse(){
+    let candidates = houses.filter(h => h.hasGarage && !isInDangerZone(h.x + h.w/2, h.y + h.h/2));
+    if(candidates.length === 0){
+      // Ninguna casa recibió garage durante la generación: forzamos que una lo tenga.
+      const shuffled = houses.filter(h => !isInDangerZone(h.x + h.w/2, h.y + h.h/2)).sort(() => Math.random() - 0.5);
+      for(const h of shuffled){
+        const g = tryAttachGarage(h);
+        if(g){ garages.push(g); g.house = h; h.garage = g; h.hasGarage = true; candidates = [h]; break; }
+      }
+    }
+    if(candidates.length > 0){
+      playerHouse = candidates[Math.floor(Math.random() * candidates.length)];
+      playerHouse.isPlayerHouse = true;
+    }
+  })();
+  const trees = [];
+  (function generateTrees(){
+    for(let i = 0; i < 260; i++){
+      const x = Math.random() * WORLD_W;
+      const y = Math.random() * WORLD_H;
+      if(distToNearestRoad(x, y) < 40) continue;
+      let overlap = false;
+      for(const hs of houses){
+        if(x > hs.x - 25 && x < hs.x + hs.w + 25 && y > hs.y - 25 && y < hs.y + hs.h + 25){ overlap = true; break; }
+      }
+      if(!overlap) trees.push({ x, y, r: 14 + Math.random() * 16 });
+    }
+  })();
+
+  // ---------- Tienda y Gym: reemplazan casas aleatorias ----------
+  function findShopSpot(){
+    const cx0 = WORLD_W/2, cy0 = WORLD_H/2;
+    const sw = 116, sh = 92;
+    for(let radius = 120; radius <= 1100; radius += 40){
+      const steps = Math.max(10, Math.floor(radius / 18));
+      for(let i = 0; i < steps; i++){
+        const angle = (i / steps) * Math.PI * 2;
+        const cx = cx0 + Math.cos(angle) * radius;
+        const cy = cy0 + Math.sin(angle) * radius;
+        const d = distToNearestRoad(cx, cy);
+        if(d > 55 && d < 150){
+          const rect = { x: cx - sw/2, y: cy - sh/2, w: sw, h: sh };
+          let overlap = false;
+          for(const h of houses){ if(rectsOverlap(rect, h, 18)){ overlap = true; break; } }
+          if(!overlap) for(const g of garages){ if(rectsOverlap(rect, g, 18)){ overlap = true; break; } }
+          if(!overlap) return rect;
+        }
+      }
+    }
+    return { x: cx0 - sw/2, y: cy0 - sh/2, w: sw, h: sh };
+  }
+
+  function pickSpecialHouse(exclude){
+    const candidates = houses.filter(h => !h.hasGarage && !exclude.includes(h) && !isInDangerZone(h.x + h.w/2, h.y + h.h/2));
+    if(!candidates.length) return null;
+    return candidates[Math.floor(Math.random() * candidates.length)];
+  }
+
+  const specialUsed = [];
+  if(playerHouse) specialUsed.push(playerHouse);
+
+  const shopHouse = pickSpecialHouse(specialUsed);
+  let shop;
+  if(shopHouse){
+    specialUsed.push(shopHouse);
+    houses.splice(houses.indexOf(shopHouse), 1);
+    shop = { x: shopHouse.x, y: shopHouse.y, w: shopHouse.w, h: shopHouse.h };
+  } else {
+    shop = findShopSpot();
+  }
+
+  const gymHouse = pickSpecialHouse(specialUsed);
+  if(gymHouse){
+    gymHouse.isGym = true;
+    gymHouse.roof = '#4FA3E8';
+    gymHouse.wall = darken('#4FA3E8', 0.35);
+    specialUsed.push(gymHouse);
+  }
+
+  // ---------- Oficina / empresa: reemplaza otra casa aleatoria ----------
+  const officeHouse = pickSpecialHouse(specialUsed);
+  if(officeHouse){
+    officeHouse.isOffice = true;
+    officeHouse.roof = '#8C97A6';
+    officeHouse.wall = darken('#8C97A6', 0.35);
+    specialUsed.push(officeHouse);
+  }
+
+  // ---------- Banco: reemplaza otra casa aleatoria ----------
+  const bankHouse = pickSpecialHouse(specialUsed);
+  if(bankHouse){
+    bankHouse.isBank = true;
+    bankHouse.roof = '#3EA86B';
+    bankHouse.wall = darken('#3EA86B', 0.35);
+    specialUsed.push(bankHouse);
+  }
+
+  // ---------- Bake terrain to offscreen canvas ----------
+  const terrain = document.createElement('canvas');
+  terrain.width = WORLD_W; terrain.height = WORLD_H;
+  const tctx = terrain.getContext('2d');
+  (function bakeTerrain(){
+    tctx.fillStyle = PALETTE.grass;
+    tctx.fillRect(0, 0, WORLD_W, WORLD_H);
+
+    tctx.globalAlpha = 0.18;
+    for(let i = 0; i < 900; i++){
+      tctx.fillStyle = Math.random() < 0.5 ? PALETTE.grassDark : PALETTE.grassLight;
+      const x = Math.random() * WORLD_W, y = Math.random() * WORLD_H, r = 30 + Math.random() * 90;
+      tctx.beginPath(); tctx.arc(x, y, r, 0, Math.PI * 2); tctx.fill();
+    }
+    tctx.globalAlpha = 1;
+
+    // veredas: franja a ambos lados de cada calle (van debajo de la calle misma)
+    tctx.fillStyle = PALETTE.sidewalk;
+    for(const l of ROAD_LINES){
+      tctx.fillRect(l - ROAD_WIDTH/2 - SIDEWALK_WIDTH, 0, SIDEWALK_WIDTH, WORLD_H);
+      tctx.fillRect(l + ROAD_WIDTH/2, 0, SIDEWALK_WIDTH, WORLD_H);
+      tctx.fillRect(0, l - ROAD_WIDTH/2 - SIDEWALK_WIDTH, WORLD_W, SIDEWALK_WIDTH);
+      tctx.fillRect(0, l + ROAD_WIDTH/2, WORLD_W, SIDEWALK_WIDTH);
+    }
+    // juntas de la vereda (marcas cada tanto, simulan las baldosas)
+    tctx.strokeStyle = PALETTE.sidewalkLine;
+    tctx.lineWidth = 1;
+    for(const l of ROAD_LINES){
+      const sideA = l - ROAD_WIDTH/2 - SIDEWALK_WIDTH, sideB = l + ROAD_WIDTH/2;
+      for(let y = 0; y < WORLD_H; y += 44){
+        tctx.beginPath(); tctx.moveTo(sideA, y); tctx.lineTo(sideA + SIDEWALK_WIDTH, y); tctx.stroke();
+        tctx.beginPath(); tctx.moveTo(sideB, y); tctx.lineTo(sideB + SIDEWALK_WIDTH, y); tctx.stroke();
+      }
+      for(let x = 0; x < WORLD_W; x += 44){
+        tctx.beginPath(); tctx.moveTo(x, sideA); tctx.lineTo(x, sideA + SIDEWALK_WIDTH); tctx.stroke();
+        tctx.beginPath(); tctx.moveTo(x, sideB); tctx.lineTo(x, sideB + SIDEWALK_WIDTH); tctx.stroke();
+      }
+    }
+
+    // roads
+    tctx.fillStyle = PALETTE.road;
+    for(const l of ROAD_LINES){
+      tctx.fillRect(l - ROAD_WIDTH/2, 0, ROAD_WIDTH, WORLD_H);
+      tctx.fillRect(0, l - ROAD_WIDTH/2, WORLD_W, ROAD_WIDTH);
+    }
+    // lane markings
+    tctx.fillStyle = PALETTE.roadLine;
+    for(const l of ROAD_LINES){
+      for(let y = 0; y < WORLD_H; y += 40){
+        tctx.fillRect(l - 2, y, 4, 20);
+      }
+      for(let x = 0; x < WORLD_W; x += 40){
+        tctx.fillRect(x, l - 2, 20, 4);
+      }
+    }
+
+    // driveways
+    tctx.fillStyle = PALETTE.driveway;
+    for(const hs of houses){
+      const cx = hs.x + hs.w/2, cy = hs.y + hs.h/2;
+      let nearest = null, best = Infinity, vertical = true, coord = 0;
+      for(const l of ROAD_LINES){
+        const dx = Math.abs(cx - l) - ROAD_WIDTH/2;
+        if(dx < best){ best = dx; nearest = l; vertical = true; coord = cx; }
+        const dy = Math.abs(cy - l) - ROAD_WIDTH/2;
+        if(dy < best){ best = dy; nearest = l; vertical = false; coord = cy; }
+      }
+      if(vertical){
+        const edge = nearest < cx ? nearest + ROAD_WIDTH/2 : nearest - ROAD_WIDTH/2;
+        const x0 = Math.min(edge, hs.x + hs.w/2 - 9);
+        tctx.fillRect(Math.min(edge, x0), cy - 9, Math.abs((hs.x + hs.w/2) - edge), 18);
+      } else {
+        const edge = nearest < cy ? nearest + ROAD_WIDTH/2 : nearest - ROAD_WIDTH/2;
+        tctx.fillRect(cx - 9, Math.min(edge, cy), 18, Math.abs((hs.y + hs.h/2) - edge));
+      }
+    }
+
+    // barrios peligrosos: solo borde para marcar el límite (sin relleno rojo)
+    tctx.strokeStyle = 'rgba(200,40,40,0.7)';
+    tctx.lineWidth = 5;
+    tctx.setLineDash([18, 12]);
+    for(const z of DANGER_ZONES){ tctx.strokeRect(z.x, z.y, z.w, z.h); }
+    tctx.setLineDash([]);
+
+    // trees se dibujan dinámicamente en render() para poder ordenarse en profundidad
+  })();
+  Math.random = realMathRandom; // fin de la generacion determinista del mapa: el resto del juego usa random real
+
+  // ---------- Player ----------
+  const player = { x: WORLD_W/2, y: WORLD_H/2, r: 13, speed: 100, facing: {x:0, y:1}, moving:false };
+  const baseSpeed = player.speed;
+  let bobTimer = 0;
+
+  function collides(x, y, r = player.r){
+    for(const hs of houses){
+      if(x + r > hs.x && x - r < hs.x + hs.w &&
+         y + r > hs.y && y - r < hs.y + hs.h) return true;
+    }
+    if(x + r > shop.x && x - r < shop.x + shop.w &&
+       y + r > shop.y && y - r < shop.y + shop.h) return true;
+    for(const t of trees){
+      if(t.destroyed) continue;
+      const dx = x - t.x, dy = y - t.y;
+      const minDist = r + t.r * 0.5;
+      if(dx*dx + dy*dy < minDist*minDist) return true;
+    }
+    return false;
+  }
+  function treeAt(x, y, r){
+    for(const t of trees){
+      if(t.destroyed) continue;
+      const dx = x - t.x, dy = y - t.y;
+      const minDist = r + t.r * 0.5;
+      if(dx*dx + dy*dy < minDist*minDist) return t;
+    }
+    return null;
+  }
+  function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+
+  // ---------- Partículas (choque de árboles) ----------
+  const TREE_CRASH_SPEED_RATIO = 0.9; // debe ir a ~90%+ de la velocidad máxima para destruir un árbol
+  const particles = [];
+  function destroyTree(t){
+    if(t.destroyed) return;
+    t.destroyed = true;
+    const count = 16 + Math.floor(Math.random() * 10);
+    for(let i = 0; i < count; i++){
+      const angle = Math.random() * Math.PI * 2;
+      const spd = 50 + Math.random() * 160;
+      particles.push({
+        x: t.x, y: t.y,
+        vx: Math.cos(angle) * spd, vy: Math.sin(angle) * spd - 60,
+        life: 0, maxLife: 0.45 + Math.random() * 0.55,
+        size: 2 + Math.random() * 4.5,
+        color: Math.random() < 0.6 ? (Math.random() < 0.5 ? PALETTE.treeCanopy : PALETTE.treeCanopyLight) : '#6B4A2C'
+      });
+    }
+  }
+  function updateParticles(dt){
+    for(let i = particles.length - 1; i >= 0; i--){
+      const p = particles[i];
+      p.life += dt;
+      if(p.life >= p.maxLife){ particles.splice(i, 1); continue; }
+      p.vy += 260 * dt;
+      p.vx *= (1 - Math.min(1, 2.2 * dt));
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+    }
+  }
+  function drawParticles(){
+    for(const p of particles){
+      const t = 1 - p.life / p.maxLife;
+      ctx.globalAlpha = Math.max(0, t);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // El jugador aparece cerca de la puerta de su propia casa (o del centro del mapa si no hay casa)
+  (function ensureFreeSpawn(){
+    const buffer = player.r + 4;
+    let cx = WORLD_W/2, cy = WORLD_H/2;
+    if(playerHouse){
+      cx = playerHouse.x + playerHouse.w/2;
+      cy = playerHouse.y + playerHouse.h + 34;
+    }
+    if(!collides(cx, cy, buffer)){ player.x = cx; player.y = cy; return; }
+    for(let radius = 20; radius <= 900; radius += 20){
+      const steps = Math.max(8, Math.floor(radius / 8));
+      for(let i = 0; i < steps; i++){
+        const angle = (i / steps) * Math.PI * 2;
+        const x = cx + Math.cos(angle) * radius;
+        const y = cy + Math.sin(angle) * radius;
+        if(x < buffer + 1 || y < buffer + 1 || x > WORLD_W - buffer - 1 || y > WORLD_H - buffer - 1) continue;
+        if(!collides(x, y, buffer)){ player.x = x; player.y = y; return; }
+      }
+    }
+  })();
+
+  // ---------- Vehículo ----------
+  const vehicle = (function(){
+    const g = (playerHouse && playerHouse.garage) ? playerHouse.garage : garages[0];
+    if(!g) return null;
+    const angleMap = { left: Math.PI, right: 0, top: -Math.PI/2, bottom: Math.PI/2 };
+    return {
+      x: g.x + g.w/2, y: g.y + g.h/2,
+      angle: angleMap[g.side] || 0,
+      speed: 0, maxSpeed: 150, accel: 105, brake: 170, friction: 130,
+      turnRate: 1.9, w: 34, h: 18, r: 20
+    };
+  })();
+  let driving = false;
+  const ENTER_RADIUS = 46;
+  const VEHICLE_STOP_SPEED = 3; // velocidad m\u00e1xima para considerar el auto "quieto"
+
+  function nearVehicle(){
+    return !!vehicle && Math.hypot(player.x - vehicle.x, player.y - vehicle.y) < ENTER_RADIUS;
+  }
+  function vehicleStopped(){
+    return !!vehicle && Math.abs(vehicle.speed) <= VEHICLE_STOP_SPEED;
+  }
+  function toggleVehicle(){
+    if(!vehicle) return;
+    if(driving){
+      if(!vehicleStopped()) return;
+      player.x = clamp(vehicle.x - Math.cos(vehicle.angle) * 30, player.r, WORLD_W - player.r);
+      player.y = clamp(vehicle.y - Math.sin(vehicle.angle) * 30, player.r, WORLD_H - player.r);
+      driving = false;
+    } else if(nearVehicle()){
+      driving = true;
+    }
+    if(typeof updateDriveUI === 'function') updateDriveUI();
+  }
+  // ---------- Tienda (interacción) ----------
+  const SHOP_RADIUS = Math.max(shop.w, shop.h) / 2 + 40;
+  let shopOpen = false;
+  function nearShop(){
+    return !driving && Math.hypot(player.x - (shop.x + shop.w/2), player.y - (shop.y + shop.h/2)) < SHOP_RADIUS;
+  }
+  function openShop(){
+    if(!isShopOpenHours()) return;
+    currentShopStock = pickShopStock();
+    renderShop();
+    shopOpen = true;
+    shopModal.classList.add('open');
+  }
+  function closeShop(){ shopOpen = false; shopModal.classList.remove('open'); }
+  shopClose.addEventListener('click', closeShop);
+  shopModal.addEventListener('click', (e) => { if(e.target === shopModal) closeShop(); });
+  window.addEventListener('keydown', (e) => { if(e.code === 'Escape' && shopOpen) closeShop(); });
+
+  // ---------- Gym (minijuego de velocidad) ----------
+  const SPEED_BONUS_STEP = 0.03;
+  const SPEED_BONUS_CAP = 0.30;
+  const GYM_CYCLE_SECONDS = 1.3;
+  const GYM_ENTRY_PRICE = 20;
+  let speedBonus = 0;
+  let gymOpen = false;
+  let gymGameTime = 0;
+  let gymMarkerPercent = 0;
+  let gymZoneStart = 0;
+  let gymZoneWidth = 26;
+
+  const GYM_RADIUS = gymHouse ? Math.max(gymHouse.w, gymHouse.h) / 2 + 40 : 0;
+  function nearGym(){
+    return !!gymHouse && !driving && Math.hypot(player.x - (gymHouse.x + gymHouse.w/2), player.y - (gymHouse.y + gymHouse.h/2)) < GYM_RADIUS;
+  }
+
+  function newGymRound(){
+    gymZoneWidth = Math.max(10, 26 - (speedBonus / SPEED_BONUS_CAP) * 14);
+    gymZoneStart = Math.random() * (100 - gymZoneWidth);
+    gymZoneEl.style.left = gymZoneStart + '%';
+    gymZoneEl.style.width = gymZoneWidth + '%';
+    gymGameTime = Math.random() * GYM_CYCLE_SECONDS;
+  }
+
+  function updateGymGame(dt){
+    if(!gymOpen || speedBonus >= SPEED_BONUS_CAP) return;
+    gymGameTime += dt;
+    const phase = (gymGameTime % GYM_CYCLE_SECONDS) / GYM_CYCLE_SECONDS;
+    const f = phase < 0.5 ? phase * 2 : (1 - phase) * 2;
+    gymMarkerPercent = f * 100;
+    gymMarkerEl.style.left = gymMarkerPercent + '%';
+  }
+
+  function refreshGymUI(){
+    gymBonusValEl.textContent = '+' + Math.round(speedBonus * 100) + '%';
+    if(speedBonus >= SPEED_BONUS_CAP){
+      gymHitBtn.disabled = true;
+      gymHitBtn.textContent = 'M\u00c1XIMO ALCANZADO';
+      gymMsgEl.textContent = 'Ya alcanzaste el m\u00e1ximo bono de velocidad (+30%).';
+      gymMsgEl.className = 'gym-msg success';
+      gymZoneEl.style.display = 'none';
+      gymMarkerEl.style.display = 'none';
+    } else {
+      gymHitBtn.disabled = false;
+      gymHitBtn.textContent = 'GOLPEAR';
+      gymZoneEl.style.display = '';
+      gymMarkerEl.style.display = '';
+    }
+  }
+
+  function openGym(){
+    if(!gymHouse) return;
+    if(playerMoney < GYM_ENTRY_PRICE){
+      showStreetToast('Saldo insuficiente para entrar al gym ($' + GYM_ENTRY_PRICE + ')');
+      return;
+    }
+    playerMoney -= GYM_ENTRY_PRICE;
+    updateMoneyUI();
+    gymOpen = true;
+    gymModal.classList.add('open');
+    gymMsgEl.textContent = 'Toca "GOLPEAR" cuando el marcador pase por la zona verde.';
+    gymMsgEl.className = 'gym-msg';
+    refreshGymUI();
+    if(speedBonus < SPEED_BONUS_CAP) newGymRound();
+  }
+  function closeGym(){ gymOpen = false; gymModal.classList.remove('open'); }
+  gymClose.addEventListener('click', closeGym);
+  gymModal.addEventListener('click', (e) => { if(e.target === gymModal) closeGym(); });
+  window.addEventListener('keydown', (e) => { if(e.code === 'Escape' && gymOpen) closeGym(); });
+
+  gymHitBtn.addEventListener('click', () => {
+    if(speedBonus >= SPEED_BONUS_CAP) return;
+    const inZone = gymMarkerPercent >= gymZoneStart && gymMarkerPercent <= gymZoneStart + gymZoneWidth;
+    if(inZone){
+      speedBonus = Math.min(SPEED_BONUS_CAP, speedBonus + SPEED_BONUS_STEP);
+      player.speed = baseSpeed * (1 + speedBonus);
+      gainXp(3);
+      gymMsgEl.textContent = '\u00a1Bien! +3% de velocidad.';
+      gymMsgEl.className = 'gym-msg success';
+    } else {
+      const hadBonus = speedBonus > 0;
+      speedBonus = Math.max(0, speedBonus - SPEED_BONUS_STEP);
+      player.speed = baseSpeed * (1 + speedBonus);
+      gymMsgEl.textContent = hadBonus ? 'Fallaste. -3% de velocidad.' : 'Fallaste, intenta de nuevo.';
+      gymMsgEl.className = 'gym-msg fail';
+    }
+    refreshGymUI();
+    if(speedBonus < SPEED_BONUS_CAP) newGymRound();
+  });
+
+  // ---------- Oficina / empresa (interacci\u00f3n) ----------
+  const OFFICE_RADIUS = officeHouse ? Math.max(officeHouse.w, officeHouse.h) / 2 + 40 : 0;
+  let officeOpen = false;
+  function nearOffice(){
+    return !!officeHouse && !driving && Math.hypot(player.x - (officeHouse.x + officeHouse.w/2), player.y - (officeHouse.y + officeHouse.h/2)) < OFFICE_RADIUS;
+  }
+  function openOffice(){
+    if(!officeHouse) return;
+    officeOpen = true;
+    officeModal.classList.add('open');
+  }
+  function closeOffice(){ officeOpen = false; officeModal.classList.remove('open'); }
+  officeClose.addEventListener('click', closeOffice);
+  officeModal.addEventListener('click', (e) => { if(e.target === officeModal) closeOffice(); });
+  window.addEventListener('keydown', (e) => { if(e.code === 'Escape' && officeOpen) closeOffice(); });
+
+  // ---------- Banco (interacción) ----------
+  const BANK_RADIUS = bankHouse ? Math.max(bankHouse.w, bankHouse.h) / 2 + 40 : 0;
+  let bankOpen = false;
+  let bankMode = 'withdraw';
+  function nearBank(){
+    return !!bankHouse && !driving && Math.hypot(player.x - (bankHouse.x + bankHouse.w/2), player.y - (bankHouse.y + bankHouse.h/2)) < BANK_RADIUS;
+  }
+  function refreshBankUI(){
+    bankCashEl.textContent = '$' + Math.floor(playerMoney).toLocaleString('es-ES');
+    bankSavedEl.textContent = '$' + Math.floor(bankBalance).toLocaleString('es-ES');
+    bankConfirmBtn.textContent = bankMode === 'withdraw' ? 'RETIRAR' : 'DEPOSITAR';
+  }
+  function setBankMode(mode){
+    bankMode = mode;
+    bankTabWithdraw.classList.toggle('active', mode === 'withdraw');
+    bankTabDeposit.classList.toggle('active', mode === 'deposit');
+    bankMsgEl.textContent = '';
+    refreshBankUI();
+  }
+  function openBank(){
+    if(!bankHouse) return;
+    bankOpen = true;
+    bankAmountInput.value = '';
+    setBankMode('withdraw');
+    bankModal.classList.add('open');
+  }
+  function closeBank(){ bankOpen = false; bankModal.classList.remove('open'); }
+  bankClose.addEventListener('click', closeBank);
+  bankModal.addEventListener('click', (e) => { if(e.target === bankModal) closeBank(); });
+  window.addEventListener('keydown', (e) => { if(e.code === 'Escape' && bankOpen) closeBank(); });
+  bankTabWithdraw.addEventListener('click', () => setBankMode('withdraw'));
+  bankTabDeposit.addEventListener('click', () => setBankMode('deposit'));
+  bankModal.querySelectorAll('.bank-quick-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const amt = btn.dataset.amt;
+      if(amt === 'max') bankAmountInput.value = Math.floor(bankMode === 'withdraw' ? bankBalance : playerMoney);
+      else bankAmountInput.value = amt;
+    });
+  });
+  bankConfirmBtn.addEventListener('click', () => {
+    const amt = Math.floor(Number(bankAmountInput.value));
+    if(!amt || amt <= 0){ bankMsgEl.textContent = 'Ingres\u00e1 un monto v\u00e1lido.'; return; }
+    if(bankMode === 'withdraw'){
+      if(amt > bankBalance){ bankMsgEl.textContent = 'No ten\u00e9s suficiente saldo en el banco.'; return; }
+      bankBalance -= amt;
+      playerMoney += amt;
+      bankMsgEl.textContent = 'Retiraste $' + amt.toLocaleString('es-ES') + '.';
+    } else {
+      if(amt > playerMoney){ bankMsgEl.textContent = 'No ten\u00e9s suficiente efectivo.'; return; }
+      playerMoney -= amt;
+      bankBalance += amt;
+      bankMsgEl.textContent = 'Depositaste $' + amt.toLocaleString('es-ES') + '.';
+    }
+    bankAmountInput.value = '';
+    updateMoneyUI();
+    refreshBankUI();
+  });
+
+  // ---------- Dormir en casa (termina la noche) ----------
+  const HOME_RADIUS = playerHouse ? Math.max(playerHouse.w, playerHouse.h) / 2 + 40 : 0;
+  function nearHome(){
+    return !!playerHouse && !driving && Math.hypot(player.x - (playerHouse.x + playerHouse.w/2), player.y - (playerHouse.y + playerHouse.h/2)) < HOME_RADIUS;
+  }
+  function sleepAtHome(){
+    if(!nearHome() || !isNight()) return;
+    dayTime = SLEEP_WAKE_T;
+    nightFrozen = false;
+    gainXp(15);
+    showStreetToast('Dormiste. Amanece un nuevo d\u00eda.');
+  }
+
+  // ---------- Trabajo de oficina: minijuego "Papeleo urgente" ----------
+  const OFFICE_GRID_SIZE = 6;   // cantidad de casilleros
+  const OFFICE_ROUNDS = 8;      // documentos por turno
+  const OFFICE_HIT_WINDOW = 900; // ms para tocar el documento resaltado
+  const OFFICE_PAY_PER_HIT = 8;  // pago por documento acertado
+  const WORK_COOLDOWN = 300;     // segundos de descanso entre turnos (5 minutos)
+
+  let workActive = false;
+  let workCooldownLeft = 0;
+  let officeRound = 0;
+  let officeScore = 0;
+  let officeActiveTile = -1;
+  let officeTileRemain = 0;
+  const officeTileEls = [];
+
+  if(officePayEl) officePayEl.textContent = OFFICE_PAY_PER_HIT;
+
+  for(let i = 0; i < OFFICE_GRID_SIZE; i++){
+    const tile = document.createElement('div');
+    tile.className = 'office-tile';
+    tile.dataset.i = String(i);
+    tile.textContent = '\ud83d\udcc4';
+    tile.addEventListener('click', () => {
+      if(!workActive || officeActiveTile !== i) return;
+      officeScore++;
+      gainXp(4);
+      tile.classList.remove('active');
+      tile.classList.add('hit');
+      setTimeout(() => tile.classList.remove('hit'), 150);
+      officeActiveTile = -1;
+      nextOfficeRound();
+    });
+    officeGameEl.appendChild(tile);
+    officeTileEls.push(tile);
+  }
+
+  function clearActiveTile(){
+    if(officeActiveTile !== -1 && officeTileEls[officeActiveTile]){
+      officeTileEls[officeActiveTile].classList.remove('active');
+    }
+    officeActiveTile = -1;
+  }
+
+  function nextOfficeRound(){
+    clearActiveTile();
+    if(officeRound >= OFFICE_ROUNDS){ finishWork(); return; }
+    officeRound++;
+    officeActiveTile = Math.floor(Math.random() * OFFICE_GRID_SIZE);
+    officeTileEls[officeActiveTile].classList.add('active');
+    officeTileRemain = OFFICE_HIT_WINDOW;
+    officeMsgEl.textContent = 'Documento ' + officeRound + '/' + OFFICE_ROUNDS + ' \u00b7 Aciertos: ' + officeScore;
+  }
+
+  function startWork(){
+    if(workActive || workCooldownLeft > 0) return;
+    workActive = true;
+    officeRound = 0;
+    officeScore = 0;
+    officeWorkBtn.disabled = true;
+    officeWorkBtn.style.display = 'none';
+    nextOfficeRound();
+  }
+  officeWorkBtn.addEventListener('click', startWork);
+
+  function finishWork(){
+    workActive = false;
+    clearActiveTile();
+    const pay = officeScore * OFFICE_PAY_PER_HIT;
+    playerMoney += pay;
+    if(officeScore === OFFICE_ROUNDS) gainXp(20); // bono por turno perfecto
+    updateMoneyUI();
+    workCooldownLeft = WORK_COOLDOWN;
+    officeWorkBtn.style.display = '';
+    officeWorkBtn.disabled = true;
+    officeProgressFillEl.style.width = '0%';
+    officeMsgEl.textContent = 'Turno terminado: ' + officeScore + '/' + OFFICE_ROUNDS + ' \u00b7 Ganaste $' + pay + '.';
+  }
+
+  function updateOfficeJob(dt){
+    if(workActive){
+      if(officeActiveTile !== -1){
+        officeTileRemain = Math.max(0, officeTileRemain - dt * 1000);
+        const pct = Math.max(0, Math.min(100, (officeTileRemain / OFFICE_HIT_WINDOW) * 100));
+        officeProgressFillEl.style.width = pct + '%';
+        if(officeTileRemain <= 0) nextOfficeRound();
+      }
+    } else if(workCooldownLeft > 0){
+      workCooldownLeft = Math.max(0, workCooldownLeft - dt);
+      officeWorkBtn.disabled = true;
+      const remainSec = Math.ceil(workCooldownLeft);
+      const mm = Math.floor(remainSec / 60);
+      const ss = String(remainSec % 60).padStart(2, '0');
+      officeMsgEl.textContent = 'Descansa ' + mm + ':' + ss + ' antes de otro turno.';
+      if(workCooldownLeft <= 0){
+        officeWorkBtn.disabled = false;
+        officeMsgEl.textContent = 'Toca "TRABAJAR" para empezar tu turno.';
+      }
+    }
+  }
+
+  // ---------- Celular (slot 4 del inventario) ----------
+  const PHONE_APP_SLOTS = 6;
+  const GPS_APP = { name: 'GPS', emoji: '\ud83e\udded', onOpen: () => { phoneScreen = 'gps'; renderGpsScreen(); } };
+  const BANK_APP = { name: 'Bank', emoji: '\ud83c\udfe6', onOpen: () => { phoneScreen = 'bank'; renderBankScreen(); } };
+  const DOWNLOADABLE_APPS = [ GPS_APP, BANK_APP ]; // apps disponibles para descargar desde ShopApp
+  const INSTALLED_APPS = [
+    { name: 'ShopApp', emoji: '\ud83d\uded2', onOpen: () => { phoneScreen = 'shopapp'; renderShopAppScreen(); } }
+  ];
+  let gpsTarget = null; // { name, x, y }
+
+  function formatClock(t){
+    const totalMinutes = Math.floor(t * 24 * 60);
+    const hh = Math.floor(totalMinutes / 60) % 24;
+    const mm = totalMinutes % 60;
+    return String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+  }
+
+  function getGpsPlaces(){
+    const places = [];
+    if(shop) places.push({ name: 'Tienda', x: shop.x + shop.w/2, y: shop.y + shop.h/2, radius: Math.hypot(shop.w/2, shop.h/2) + 45 });
+    if(gymHouse) places.push({ name: 'Gimnasio', x: gymHouse.x + gymHouse.w/2, y: gymHouse.y + gymHouse.h/2, radius: Math.hypot(gymHouse.w/2, gymHouse.h/2) + 45 });
+    if(officeHouse) places.push({ name: 'Oficina', x: officeHouse.x + officeHouse.w/2, y: officeHouse.y + officeHouse.h/2, radius: Math.hypot(officeHouse.w/2, officeHouse.h/2) + 45 });
+    if(bankHouse) places.push({ name: 'Banco', x: bankHouse.x + bankHouse.w/2, y: bankHouse.y + bankHouse.h/2, radius: Math.hypot(bankHouse.w/2, bankHouse.h/2) + 45 });
+    if(playerHouse) places.push({ name: 'Tu casa', x: playerHouse.x + playerHouse.w/2, y: playerHouse.y + playerHouse.h/2, radius: Math.hypot(playerHouse.w/2, playerHouse.h/2) + 45 });
+    return places;
+  }
+
+  function directionArrow(dx, dy){
+    const deg = Math.atan2(dy, dx) * 180 / Math.PI;
+    const dirs = ['\u2192','\u2198','\u2193','\u2199','\u2190','\u2196','\u2191','\u2197'];
+    const idx = Math.round(((deg + 360) % 360) / 45) % 8;
+    return dirs[idx];
+  }
+
+  function installApp(app){
+    if(INSTALLED_APPS.length >= PHONE_APP_SLOTS){
+      phoneMsgEl.textContent = 'No hay espacio para m\u00e1s apps.';
+      return;
+    }
+    INSTALLED_APPS.push(app);
+    const idx = DOWNLOADABLE_APPS.indexOf(app);
+    if(idx !== -1) DOWNLOADABLE_APPS.splice(idx, 1);
+    phoneMsgEl.textContent = app.name + ' instalada.';
+    renderShopAppScreen();
+  }
+
+  function renderPhoneHome(){
+    phoneContentEl.className = 'phone-content phone-apps-grid';
+    phoneContentEl.innerHTML = '';
+    for(let i = 0; i < PHONE_APP_SLOTS; i++){
+      const app = INSTALLED_APPS[i];
+      const el = document.createElement('div');
+      el.className = 'phone-app';
+      if(app){
+        el.innerHTML = '<div class="phone-app-icon">' + app.emoji + '</div><div class="phone-app-name">' + app.name + '</div>';
+        el.addEventListener('click', () => { if(typeof app.onOpen === 'function') app.onOpen(); });
+      } else {
+        el.innerHTML = '<div class="phone-app-icon">+</div><div class="phone-app-name">Vac\u00edo</div>';
+        el.addEventListener('click', () => { phoneMsgEl.textContent = 'Todav\u00eda no hay m\u00e1s apps instaladas.'; });
+      }
+      phoneContentEl.appendChild(el);
+    }
+    phoneMsgEl.textContent = '';
+  }
+  function renderShopAppScreen(){
+    phoneContentEl.className = 'phone-content';
+    phoneContentEl.innerHTML = '';
+    const header = document.createElement('div');
+    header.className = 'phone-shopapp-header';
+    header.innerHTML = '<button type="button" class="phone-back-btn" id="phoneBackBtn">&larr;</button><span>ShopApp</span>';
+    phoneContentEl.appendChild(header);
+    const list = document.createElement('div');
+    list.className = 'phone-shopapp-list';
+    if(DOWNLOADABLE_APPS.length === 0){
+      const empty = document.createElement('div');
+      empty.className = 'phone-shopapp-empty';
+      empty.textContent = 'Todav\u00eda no hay apps disponibles para descargar.';
+      list.appendChild(empty);
+    } else {
+      DOWNLOADABLE_APPS.slice().forEach(app => {
+        const row = document.createElement('div');
+        row.className = 'phone-shopapp-row';
+        row.innerHTML = '<div class="phone-shopapp-row-info"><span class="phone-app-icon small">' + app.emoji + '</span><span>' + app.name + '</span></div><button type="button" class="phone-download-btn">Descargar</button>';
+        row.querySelector('.phone-download-btn').addEventListener('click', () => installApp(app));
+        list.appendChild(row);
+      });
+    }
+    phoneContentEl.appendChild(list);
+    document.getElementById('phoneBackBtn').addEventListener('click', () => { phoneScreen = 'home'; renderPhoneHome(); });
+    phoneMsgEl.textContent = '';
+  }
+  function renderGpsScreen(){
+    phoneContentEl.className = 'phone-content';
+    phoneContentEl.innerHTML = '';
+    const header = document.createElement('div');
+    header.className = 'phone-shopapp-header';
+    header.innerHTML = '<button type="button" class="phone-back-btn" id="phoneBackBtnGps">&larr;</button><span>GPS</span>';
+    phoneContentEl.appendChild(header);
+    const list = document.createElement('div');
+    list.className = 'phone-shopapp-list';
+
+    if(gpsTarget){
+      const cancelRow = document.createElement('button');
+      cancelRow.type = 'button';
+      cancelRow.className = 'phone-gps-item cancel';
+      cancelRow.textContent = 'Cancelar navegaci\u00f3n (' + gpsTarget.name + ')';
+      cancelRow.addEventListener('click', () => { gpsTarget = null; closePhone(); });
+      list.appendChild(cancelRow);
+    }
+
+    const places = getGpsPlaces();
+    if(places.length === 0){
+      const empty = document.createElement('div');
+      empty.className = 'phone-shopapp-empty';
+      empty.textContent = 'No hay lugares disponibles todav\u00eda.';
+      list.appendChild(empty);
+    } else {
+      places.forEach(place => {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'phone-gps-item';
+        row.innerHTML = '<span>' + place.name + '</span><span class="phone-gps-go">IR</span>';
+        row.addEventListener('click', () => {
+          gpsTarget = { name: place.name, x: place.x, y: place.y, radius: place.radius };
+          closePhone();
+          showStreetToast('GPS: rumbo a ' + place.name);
+        });
+        list.appendChild(row);
+      });
+    }
+    phoneContentEl.appendChild(list);
+    document.getElementById('phoneBackBtnGps').addEventListener('click', () => { phoneScreen = 'home'; renderPhoneHome(); });
+    phoneMsgEl.textContent = '';
+  }
+  function renderBankScreen(){
+    phoneContentEl.className = 'phone-content';
+    phoneContentEl.innerHTML = '';
+    const header = document.createElement('div');
+    header.className = 'phone-shopapp-header';
+    header.innerHTML = '<button type="button" class="phone-back-btn" id="phoneBackBtnBank">&larr;</button><span>Bank</span>';
+    phoneContentEl.appendChild(header);
+    const card = document.createElement('div');
+    card.className = 'phone-bank-card';
+    card.innerHTML = '<div class="phone-bank-label">Efectivo</div><div class="phone-bank-amount">$' + Math.floor(playerMoney).toLocaleString('es-ES') + '</div>';
+    phoneContentEl.appendChild(card);
+    const savedCard = document.createElement('div');
+    savedCard.className = 'phone-bank-card';
+    savedCard.innerHTML = '<div class="phone-bank-label">En el banco</div><div class="phone-bank-amount">$' + Math.floor(bankBalance).toLocaleString('es-ES') + '</div>';
+    phoneContentEl.appendChild(savedCard);
+
+    const finesTitle = document.createElement('div');
+    finesTitle.className = 'phone-fine-title';
+    finesTitle.textContent = 'Multas pendientes';
+    phoneContentEl.appendChild(finesTitle);
+
+    if(fines.length === 0){
+      const empty = document.createElement('div');
+      empty.className = 'phone-fine-empty';
+      empty.textContent = 'No ten\u00e9s multas pendientes.';
+      phoneContentEl.appendChild(empty);
+    } else {
+      const finesList = document.createElement('div');
+      finesList.className = 'phone-shopapp-list';
+      fines.forEach(fine => {
+        const row = document.createElement('div');
+        row.className = 'phone-fine-item';
+        row.innerHTML = '<div class="phone-fine-info"><span class="phone-fine-desc">' + fine.description + '</span><span class="phone-fine-amount">$' + fine.amount.toLocaleString('es-ES') + '</span></div>';
+        const payBtn = document.createElement('button');
+        payBtn.type = 'button';
+        payBtn.className = 'phone-fine-pay-btn';
+        payBtn.textContent = 'PAGAR';
+        payBtn.addEventListener('click', () => payFine(fine.id));
+        row.appendChild(payBtn);
+        finesList.appendChild(row);
+      });
+      phoneContentEl.appendChild(finesList);
+    }
+
+    document.getElementById('phoneBackBtnBank').addEventListener('click', () => { phoneScreen = 'home'; renderPhoneHome(); });
+    phoneMsgEl.textContent = '';
+  }
+  let phoneOpen = false;
+  let phoneScreen = 'home';
+  function openPhone(){
+    phoneOpen = true;
+    phoneScreen = 'home';
+    phoneClockEl.textContent = formatClock(dayTime);
+    renderPhoneHome();
+    phoneModal.classList.add('open');
+  }
+  function closePhone(){ phoneOpen = false; phoneModal.classList.remove('open'); }
+  phoneClose.addEventListener('click', closePhone);
+  phoneModal.addEventListener('click', (e) => { if(e.target === phoneModal) closePhone(); });
+  window.addEventListener('keydown', (e) => { if(e.code === 'Escape' && phoneOpen) closePhone(); });
+
+  function updateActionButton(){
+    if(driving){
+      if(vehicleStopped()){ actionBtn.textContent = 'BAJAR'; actionBtn.style.display = 'flex'; actionBtn.dataset.action = 'vehicle'; }
+      else actionBtn.style.display = 'none';
+      return;
+    }
+    if(nearVehicle()){ actionBtn.textContent = 'SUBIR'; actionBtn.style.display = 'flex'; actionBtn.dataset.action = 'vehicle'; return; }
+    if(nearShop() && !shopOpen){
+      if(isShopOpenHours()){ actionBtn.textContent = 'TIENDA'; actionBtn.style.display = 'flex'; actionBtn.dataset.action = 'shop'; }
+      else{ actionBtn.textContent = 'CERRADO'; actionBtn.style.display = 'flex'; actionBtn.dataset.action = 'closed'; }
+      return;
+    }
+    if(nearGym() && !gymOpen){ actionBtn.textContent = 'GYM ($' + GYM_ENTRY_PRICE + ')'; actionBtn.style.display = 'flex'; actionBtn.dataset.action = 'gym'; return; }
+    if(nearOffice() && !officeOpen){ actionBtn.textContent = 'OFICINA'; actionBtn.style.display = 'flex'; actionBtn.dataset.action = 'office'; return; }
+    if(nearBank() && !bankOpen){ actionBtn.textContent = 'BANCO'; actionBtn.style.display = 'flex'; actionBtn.dataset.action = 'bank'; return; }
+    if(nearHome() && isNight()){ actionBtn.textContent = 'DORMIR'; actionBtn.style.display = 'flex'; actionBtn.dataset.action = 'sleep'; return; }
+    if(nearNpc()){ actionBtn.textContent = 'HABLAR'; actionBtn.style.display = 'flex'; actionBtn.dataset.action = 'npc'; return; }
+    actionBtn.style.display = 'none';
+  }
+  actionBtn.addEventListener('click', () => {
+    if(actionBtn.dataset.action === 'shop') openShop();
+    else if(actionBtn.dataset.action === 'gym') openGym();
+    else if(actionBtn.dataset.action === 'office') openOffice();
+    else if(actionBtn.dataset.action === 'bank') openBank();
+    else if(actionBtn.dataset.action === 'sleep') sleepAtHome();
+    else if(actionBtn.dataset.action === 'vehicle') toggleVehicle();
+    else if(actionBtn.dataset.action === 'npc'){ const n = nearNpc(); if(n) talkToNpc(n); }
+  });
+
+  // ---------- Input ----------
+  const keys = {};
+  let hintHidden = false;
+  window.addEventListener('keydown', (e) => {
+    if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
+    if(e.code === 'KeyE' && !e.repeat){
+      if(driving || nearVehicle()) toggleVehicle();
+      else if(nearShop() && !shopOpen && isShopOpenHours()) openShop();
+      else if(nearGym() && !gymOpen) openGym();
+      else if(nearOffice() && !officeOpen) openOffice();
+      else if(nearBank() && !bankOpen) openBank();
+      else if(nearHome() && isNight()) sleepAtHome();
+      else { const n = nearNpc(); if(n) talkToNpc(n); }
+    }
+    keys[e.code] = true;
+  }, { passive:false });
+  window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+  canvas.addEventListener('click', () => canvas.focus());
+
+  // ---------- Joystick (táctil) ----------
+  const joystickZone = document.getElementById('joystickZone');
+  const joystickKnob = document.getElementById('joystickKnob');
+  const JOY_RADIUS = 40;
+  let joystickActive = false;
+  let joystickPointerId = null;
+  let joystickVector = { x: 0, y: 0 };
+
+  function setJoystickFromEvent(e){
+    const rect = joystickZone.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const dx = e.clientX - cx, dy = e.clientY - cy;
+    const dist = Math.hypot(dx, dy);
+    const clamped = Math.min(dist, JOY_RADIUS);
+    const angle = Math.atan2(dy, dx);
+    const kx = Math.cos(angle) * clamped, ky = Math.sin(angle) * clamped;
+    joystickKnob.style.transform = `translate(calc(-50% + ${kx}px), calc(-50% + ${ky}px))`;
+    const deadzone = 6;
+    if(dist < deadzone){ joystickVector = { x: 0, y: 0 }; }
+    else {
+      const mag = Math.min(dist / JOY_RADIUS, 1);
+      joystickVector = { x: (dx / dist) * mag, y: (dy / dist) * mag };
+    }
+  }
+  function resetJoystick(){
+    joystickActive = false;
+    joystickPointerId = null;
+    joystickVector = { x: 0, y: 0 };
+    joystickKnob.style.transform = 'translate(-50%, -50%)';
+  }
+  joystickZone.addEventListener('pointerdown', (e) => {
+    joystickActive = true;
+    joystickPointerId = e.pointerId;
+    joystickZone.setPointerCapture(e.pointerId);
+    setJoystickFromEvent(e);
+  });
+  joystickZone.addEventListener('pointermove', (e) => {
+    if(!joystickActive || e.pointerId !== joystickPointerId) return;
+    setJoystickFromEvent(e);
+  });
+  joystickZone.addEventListener('pointerup', (e) => { if(e.pointerId === joystickPointerId) resetJoystick(); });
+  joystickZone.addEventListener('pointercancel', (e) => { if(e.pointerId === joystickPointerId) resetJoystick(); });
+
+  const isCoarsePointer = !!(window.matchMedia && window.matchMedia('(pointer:coarse)').matches);
+
+  if(isCoarsePointer){
+    hintEl.textContent = 'Usa el joystick para moverte';
+  }
+
+  // ---------- Volante y pedales (táctil, al manejar) ----------
+  const touchDrive = { left:false, right:false, gas:false, brake:false };
+  function bindHoldButton(el, onDown, onUp){
+    el.addEventListener('pointerdown', (e) => { if(editMode) return; e.preventDefault(); onDown(); try{ el.setPointerCapture(e.pointerId); }catch(_){} });
+    el.addEventListener('pointerup', onUp);
+    el.addEventListener('pointercancel', onUp);
+    el.addEventListener('pointerleave', onUp);
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+  bindHoldButton(steerLeftBtn, () => touchDrive.left = true, () => touchDrive.left = false);
+  bindHoldButton(steerRightBtn, () => touchDrive.right = true, () => touchDrive.right = false);
+  bindHoldButton(gasBtn, () => touchDrive.gas = true, () => touchDrive.gas = false);
+  bindHoldButton(brakeBtn, () => touchDrive.brake = true, () => touchDrive.brake = false);
+
+  function resetTouchDrive(){
+    touchDrive.left = false; touchDrive.right = false; touchDrive.gas = false; touchDrive.brake = false;
+  }
+
+  function getVehicleInputVector(){
+    if(touchDrive.left || touchDrive.right || touchDrive.gas || touchDrive.brake){
+      let x = 0, y = 0;
+      if(touchDrive.left) x -= 1;
+      if(touchDrive.right) x += 1;
+      if(touchDrive.gas) y -= 1;
+      if(touchDrive.brake) y += 1;
+      return { x, y, active: x !== 0 || y !== 0 };
+    }
+    return getInputVector();
+  }
+
+  let editMode = false;
+
+  function updateDriveUI(){
+    if(editMode){
+      joystickZone.style.display = 'none';
+      steerControls.style.display = 'flex';
+      pedalControls.style.display = 'flex';
+      return;
+    }
+    if(!isCoarsePointer) return;
+    if(driving){
+      joystickZone.style.display = 'none';
+      steerControls.style.display = 'flex';
+      pedalControls.style.display = 'flex';
+    } else {
+      joystickZone.style.display = 'block';
+      steerControls.style.display = 'none';
+      pedalControls.style.display = 'none';
+      resetTouchDrive();
+    }
+  }
+  updateDriveUI();
+
+  // ---------- Ajustes: mover y redimensionar los controles de manejo ----------
+  let dragTarget = null;
+  let dragOffset = { x: 0, y: 0 };
+
+  function enableDragging(el){
+    el.style.transformOrigin = 'top left';
+    el.addEventListener('pointerdown', (e) => {
+      if(!editMode) return;
+      e.preventDefault();
+      dragTarget = el;
+      const rect = el.getBoundingClientRect();
+      dragOffset.x = e.clientX - rect.left;
+      dragOffset.y = e.clientY - rect.top;
+      try{ el.setPointerCapture(e.pointerId); }catch(_){}
+      el.classList.add('dragging');
+    });
+    el.addEventListener('pointermove', (e) => {
+      if(dragTarget !== el) return;
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      let nx = e.clientX - dragOffset.x;
+      let ny = e.clientY - dragOffset.y;
+      nx = Math.max(0, Math.min(window.innerWidth - rect.width, nx));
+      ny = Math.max(0, Math.min(window.innerHeight - rect.height, ny));
+      el.style.left = nx + 'px';
+      el.style.top = ny + 'px';
+      el.style.right = 'auto';
+      el.style.bottom = 'auto';
+    });
+    const endDrag = () => { if(dragTarget === el){ dragTarget = null; el.classList.remove('dragging'); } };
+    el.addEventListener('pointerup', endDrag);
+    el.addEventListener('pointercancel', endDrag);
+  }
+  enableDragging(steerControls);
+  enableDragging(pedalControls);
+
+  function setEditMode(on){
+    editMode = on;
+    steerControls.classList.toggle('editing', on);
+    pedalControls.classList.toggle('editing', on);
+    updateDriveUI();
+  }
+
+  // ---------- Pausa ----------
+  let paused = false;
+  let saveMsgTimeout = null;
+  function setPaused(on){
+    paused = on;
+    pauseOverlayEl.classList.toggle('show', on);
+    pauseToggleBtn.textContent = on ? 'Reanudar' : 'Pausar';
+    pauseToggleBtn.classList.toggle('is-paused', on);
+  }
+  function openSettings(){
+    settingsPanel.classList.add('open');
+    setEditMode(true);
+    setPaused(true);
+  }
+  function closeSettings(){
+    settingsPanel.classList.remove('open');
+    setEditMode(false);
+    setPaused(false);
+  }
+  settingsBtn.addEventListener('click', () => {
+    if(settingsPanel.classList.contains('open')) closeSettings(); else openSettings();
+  });
+  settingsClose.addEventListener('click', closeSettings);
+  pauseToggleBtn.addEventListener('click', () => setPaused(!paused));
+  manualSaveBtn.addEventListener('click', () => {
+    saveGame();
+    settingsSaveMsgEl.classList.add('show');
+    clearTimeout(saveMsgTimeout);
+    saveMsgTimeout = setTimeout(() => settingsSaveMsgEl.classList.remove('show'), 1800);
+  });
+  newGameBtn.addEventListener('click', () => {
+    const ok = confirm('\u00bfEmpezar de nuevo? Se borra tu partida guardada (plata, nivel, inventario, etc.) y se genera un mapa nuevo desde cero. Esto no se puede deshacer.');
+    if(!ok) return;
+    resettingGame = true; // evita que el autoguardado (beforeunload/pagehide) reviva la partida vieja al recargar
+    try{
+      localStorage.removeItem(SAVE_KEY);
+      localStorage.removeItem(WORLD_SEED_KEY);
+    }catch(e){}
+    location.reload();
+  });
+  window.addEventListener('keydown', (e) => {
+    if(e.key !== 'Escape') return;
+    if(startScreenEl && !startScreenEl.classList.contains('hidden')) return;
+    if(settingsPanel.classList.contains('open')){ closeSettings(); return; }
+    // Si hay otro modal abierto (tienda, gym, oficina, banco, tel\u00e9fono), que sea
+    // su propio listener de Escape el que lo cierre; no abrir ajustes encima.
+    if(shopOpen || gymOpen || officeOpen || bankOpen || phoneOpen) return;
+    openSettings();
+  });
+
+  function applyScale(el, percent){
+    el.style.transform = `scale(${percent / 100})`;
+  }
+  steerSizeSlider.addEventListener('input', () => {
+    steerSizeVal.textContent = steerSizeSlider.value + '%';
+    applyScale(steerControls, steerSizeSlider.value);
+  });
+  pedalSizeSlider.addEventListener('input', () => {
+    pedalSizeVal.textContent = pedalSizeSlider.value + '%';
+    applyScale(pedalControls, pedalSizeSlider.value);
+  });
+  resetControlsBtn.addEventListener('click', () => {
+    [steerControls, pedalControls].forEach(el => {
+      el.style.left = '';
+      el.style.top = '';
+      el.style.right = '';
+      el.style.bottom = '';
+      el.style.transform = '';
+    });
+    steerSizeSlider.value = 100;
+    pedalSizeSlider.value = 100;
+    steerSizeVal.textContent = '100%';
+    pedalSizeVal.textContent = '100%';
+  });
+
+  function getInputVector(){
+    if(joystickActive && (joystickVector.x !== 0 || joystickVector.y !== 0)){
+      return { x: joystickVector.x, y: joystickVector.y, active: Math.hypot(joystickVector.x, joystickVector.y) > 0.05 };
+    }
+    let dx = 0, dy = 0;
+    if(keys['KeyW'] || keys['ArrowUp']) dy -= 1;
+    if(keys['KeyS'] || keys['ArrowDown']) dy += 1;
+    if(keys['KeyA'] || keys['ArrowLeft']) dx -= 1;
+    if(keys['KeyD'] || keys['ArrowRight']) dx += 1;
+    const active = dx !== 0 || dy !== 0;
+    if(active){ const len = Math.hypot(dx, dy); dx /= len; dy /= len; }
+    return { x: dx, y: dy, active };
+  }
+
+  // ---------- Update ----------
+  function updateCamera(dt, fx, fy){
+    const targetCamX = clamp(fx - viewport.w/2, 0, Math.max(0, WORLD_W - viewport.w));
+    const targetCamY = clamp(fy - viewport.h/2, 0, Math.max(0, WORLD_H - viewport.h));
+    camera.x += (targetCamX - camera.x) * Math.min(1, dt * 6);
+    camera.y += (targetCamY - camera.y) * Math.min(1, dt * 6);
+  }
+
+  function updatePlayer(dt){
+    const input = getInputVector();
+    let dx = input.x, dy = input.y;
+    const moving = input.active;
+
+    if(moving){
+      const len = Math.hypot(dx, dy) || 1;
+      player.facing.x = dx / len; player.facing.y = dy / len;
+      if(!hintHidden){ hintHidden = true; hintEl.classList.add('hidden'); }
+    }
+    player.moving = moving;
+    bobTimer += dt * (moving ? 9 : 2);
+
+    const nx = player.x + dx * player.speed * dt;
+    const ny = player.y + dy * player.speed * dt;
+    if(!collides(nx, player.y)) player.x = nx;
+    if(!collides(player.x, ny)) player.y = ny;
+
+    player.x = clamp(player.x, player.r, WORLD_W - player.r);
+    player.y = clamp(player.y, player.r, WORLD_H - player.r);
+
+    updateCamera(dt, player.x, player.y);
+  }
+
+  function updateVehicle(dt){
+    const input = getVehicleInputVector();
+    const forward = -input.y;
+    const turn = input.x;
+
+    if(forward > 0.05) vehicle.speed += vehicle.accel * dt * forward;
+    else if(forward < -0.05) vehicle.speed += vehicle.brake * dt * forward;
+    else if(vehicle.speed > 0) vehicle.speed = Math.max(0, vehicle.speed - vehicle.friction * dt);
+    else if(vehicle.speed < 0) vehicle.speed = Math.min(0, vehicle.speed + vehicle.friction * dt);
+    vehicle.speed = clamp(vehicle.speed, -vehicle.maxSpeed * 0.45, vehicle.maxSpeed);
+
+    if(Math.abs(turn) > 0.05 && Math.abs(vehicle.speed) > 4){
+      const turnFactor = Math.min(Math.abs(vehicle.speed) / vehicle.maxSpeed, 1) * 0.7 + 0.3;
+      const dir = vehicle.speed < 0 ? -1 : 1;
+      vehicle.angle += turn * vehicle.turnRate * dt * turnFactor * dir;
+    }
+
+    const nx = vehicle.x + Math.cos(vehicle.angle) * vehicle.speed * dt;
+    const ny = vehicle.y + Math.sin(vehicle.angle) * vehicle.speed * dt;
+
+    if(Math.abs(vehicle.speed) / vehicle.maxSpeed >= TREE_CRASH_SPEED_RATIO){
+      const hitX = treeAt(nx, vehicle.y, vehicle.r);
+      if(hitX) destroyTree(hitX);
+      const hitY = treeAt(vehicle.x, ny, vehicle.r);
+      if(hitY) destroyTree(hitY);
+    }
+
+    if(Math.abs(vehicle.speed) >= NPC_HIT_SPEED_THRESHOLD){
+      const hitNpc = npcAt(nx, ny, vehicle.r);
+      if(hitNpc) runOverNpc(hitNpc);
+    }
+
+    if(!collides(nx, vehicle.y, vehicle.r)) vehicle.x = nx; else vehicle.speed *= 0.3;
+    if(!collides(vehicle.x, ny, vehicle.r)) vehicle.y = ny; else vehicle.speed *= 0.3;
+
+    vehicle.x = clamp(vehicle.x, vehicle.r, WORLD_W - vehicle.r);
+    vehicle.y = clamp(vehicle.y, vehicle.r, WORLD_H - vehicle.r);
+
+    player.x = vehicle.x; player.y = vehicle.y;
+    updateCamera(dt, vehicle.x, vehicle.y);
+  }
+
+  // ---------- Enemigos de los barrios peligrosos (bots reales) ----------
+  // Cada zona tiene "casas de bandidos" (casas comunes que caen dentro de la
+  // zona). De ahi salen los enemigos: patrullan cerca de su casa, y si el
+  // jugador se acerca lo persiguen. Al alcanzarlo, el ladron roba y el
+  // atacante golpea; despues ambos vuelven a su casa y desaparecen.
+  DANGER_ZONES.forEach(z => {
+    z.spawnHouses = houses.filter(h => {
+      const cx = h.x + h.w/2, cy = h.y + h.h/2;
+      return cx >= z.x && cx <= z.x + z.w && cy >= z.y && cy <= z.y + z.h;
+    });
+    if(z.spawnHouses.length === 0){
+      z.spawnHouses = [{ x: z.x + z.w/2 - 10, y: z.y + z.h/2 - 10, w: 20, h: 20 }];
+    }
+  });
+
+  const enemies = [];
+  const MAX_ENEMIES_PER_ZONE = 2;
+  const ENEMY_SPAWN_CHECK_INTERVAL = 6;
+  const ENEMY_SPAWN_CHANCE_DAY = 0.20, ENEMY_SPAWN_CHANCE_NIGHT = 0.5;
+  const ENEMY_DETECT_RADIUS = 240;
+  const ENEMY_CONTACT_RADIUS = 24;
+  const ENEMY_ATTACK_CHANCE = 0.28; // resto de las veces que un enemigo aparece, es ladron
+  const POST_ENCOUNTER_GRACE = 5; // segundos de calma tras un encuentro
+  const GUN_ATTACK_CHANCE = 0.5; // de los atacantes, la mitad tiene cuchillo y la otra mitad arma de fuego
+  const GUN_SHOOT_RANGE = 240;
+  const GUN_KEEP_DISTANCE = 130; // si el jugador se le pega mas de la cuenta, retrocede para poder seguir tirando
+  const GUN_SHOOT_COOLDOWN_MIN = 1.1, GUN_SHOOT_COOLDOWN_VAR = 0.9;
+  const BULLET_SPEED = 320;
+  const BULLET_RADIUS = 3;
+  const BULLET_DAMAGE_MIN = 8, BULLET_DAMAGE_VAR = 9;
+  const BULLET_LIFETIME = 1.6;
+  const BULLET_SPREAD = 0.16; // radianes de imprecision al disparar
+  let enemySpawnTimer = 0;
+  let dangerGraceTimer = 0;
+  let lastDangerZoneName = null;
+  const bullets = [];
+
+  function activeEnemyCountForZone(zone){
+    return enemies.reduce((n, e) => n + (e.zone === zone ? 1 : 0), 0);
+  }
+
+  function spawnEnemy(zone){
+    const house = zone.spawnHouses[Math.floor(Math.random() * zone.spawnHouses.length)];
+    const hx = house.x + house.w/2, hy = house.y + house.h + 10;
+    const isAttacker = Math.random() < ENEMY_ATTACK_CHANCE;
+    const weapon = isAttacker ? (Math.random() < GUN_ATTACK_CHANCE ? 'gun' : 'knife') : null;
+    enemies.push({
+      x: hx, y: hy, r: 12,
+      homeX: hx, homeY: hy,
+      zone: zone,
+      type: isAttacker ? 'attacker' : 'thief',
+      weapon: weapon,
+      speed: isAttacker ? baseSpeed * 1.05 : baseSpeed * 0.82,
+      state: 'patrol',
+      patrolX: hx, patrolY: hy,
+      patrolTimer: 0,
+      shootTimer: GUN_SHOOT_COOLDOWN_MIN + Math.random() * GUN_SHOOT_COOLDOWN_VAR
+    });
+  }
+
+  function fireBullet(e){
+    const dx = player.x - e.x, dy = player.y - e.y;
+    const angle = Math.atan2(dy, dx) + (Math.random() - 0.5) * BULLET_SPREAD;
+    bullets.push({
+      x: e.x, y: e.y,
+      vx: Math.cos(angle) * BULLET_SPEED,
+      vy: Math.sin(angle) * BULLET_SPEED,
+      r: BULLET_RADIUS,
+      damage: BULLET_DAMAGE_MIN + Math.random() * BULLET_DAMAGE_VAR,
+      life: 0,
+      zone: e.zone
+    });
+  }
+
+  function updateBullets(dt){
+    for(let i = bullets.length - 1; i >= 0; i--){
+      const b = bullets[i];
+      b.x += b.vx * dt; b.y += b.vy * dt;
+      b.life += dt;
+      if(b.life > BULLET_LIFETIME || b.x < 0 || b.x > WORLD_W || b.y < 0 || b.y > WORLD_H){
+        bullets.splice(i, 1);
+        continue;
+      }
+      const d = Math.hypot(player.x - b.x, player.y - b.y);
+      if(d < player.r + b.r){
+        health = Math.max(0, health - b.damage);
+        dangerGraceTimer = POST_ENCOUNTER_GRACE;
+        if(health <= 0) knockOutPlayer(b.zone);
+        else showStreetToast('\u00a1Te dispararon en ' + b.zone.name + '!');
+        bullets.splice(i, 1);
+      }
+    }
+  }
+
+  function updateEnemySpawning(dt){
+    const zone = dangerZoneAt(player.x, player.y);
+    if(!zone) return;
+    enemySpawnTimer += dt;
+    if(enemySpawnTimer < ENEMY_SPAWN_CHECK_INTERVAL) return;
+    enemySpawnTimer = 0;
+    if(activeEnemyCountForZone(zone) >= MAX_ENEMIES_PER_ZONE) return;
+    const chance = isNight() ? ENEMY_SPAWN_CHANCE_NIGHT : ENEMY_SPAWN_CHANCE_DAY;
+    if(Math.random() < chance) spawnEnemy(zone);
+  }
+
+  // ---------- Peatones (NPCs caminando por las veredas) ----------
+  // Cada NPC camina en línea recta sobre una vereda (vertical u horizontal) y,
+  // al cruzar con otra vereda, a veces dobla. Al llegar al borde del mapa da la
+  // vuelta. De noche caminan menos (algunos, ninguno en zonas peligrosas).
+  const NPC_COUNT = 46;
+  const NPC_SPEED_MIN = 26, NPC_SPEED_VAR = 16;
+  const NPC_TURN_CHANCE = 0.3;
+  const NPC_COLORS = ['#C97A5A','#5E86AA','#9C8A5E','#7A9A6B','#A0688C','#6E7C8C','#B79355','#8C6E9C'];
+  const NPC_POLICE_COUNT = 5; // cantidad de NPCs random marcados como policía (por ahora solo la marca, sin comportamiento)
+  const POLICE_COLOR = '#2255CC';
+  const NPC_TALK_RADIUS = 46;
+  const NPC_TALK_DURATION = 5;
+  const NPC_TALK_COOLDOWN = 2.5;
+  const NPC_HIT_SPEED_THRESHOLD = 20; // velocidad mínima del auto para que atropellar tumbe al NPC
+  const NPC_DOWNED_DURATION = 11; // segundos que queda tirado en el piso
+  const NPC_HURT_VOICE_DURATION = 4; // segundos que se ve la frase de dolor
+  const NPC_HURT_PHRASES = [
+    '\u00a1Ayuda, por favor!',
+    '\u00a1No siento las piernas!',
+    '\u00a1Llamen a una ambulancia!',
+    'Auch... creo que me romp\u00ed algo.',
+    '\u00a1\u00bfPor qu\u00e9 no mir\u00e1s por d\u00f3nde manej\u00e1s?!',
+    'Duele mucho... no puedo levantarme.',
+    '\u00a1Alguien que me ayude, me atropellaron!',
+    'Me duele todo el cuerpo...',
+    'No puedo pararme... llamen a alguien.',
+    '\u00a1Casi me mat\u00e1s, loco!'
+  ];
+  const npcs = [];
+
+  // Frases variadas: barrios peligrosos, precios de tiendas, pago de trabajos, etc.
+  function buildNpcPhrases(){
+    const zoneNames = DANGER_ZONES.map(z => z.name);
+    return [
+      ...zoneNames.map(n => `No te metas en ${n} de noche, ahí roban seguro.`),
+      ...zoneNames.map(n => `Un amigo mío terminó a los golpes en ${n}, andá con cuidado.`),
+      'Los barrios peligrosos están marcados con líneas rojas en el mapa, no digas que no te avisé.',
+      'De noche los barrios peligrosos son mucho peor, casi no salgo a esa hora.',
+      'Si entrás a una zona peligrosa, mejor andá armado o con el auto cerca para escapar.',
+      `La entrada al gym te sale $${GYM_ENTRY_PRICE}, no es tan caro para lo que rinde.`,
+      'En la tienda los precios cambian cada tanto, fijate bien antes de comprar.',
+      'Dicen que en la tienda a veces hay ofertas si llegás temprano.',
+      `En la oficina te pagan como $${OFFICE_PAY_PER_HIT} por cada documento que hacés bien.`,
+      'Trabajar en la oficina no paga una fortuna, pero es una plata segura.',
+      'Si necesitás plata rápido, revisá los alrededores de los barrios peligrosos... pero es arriesgado.',
+      'El banco te guarda la plata a salvo, mejor que andar con todo encima.',
+      'Yo prefiero ahorrar en el banco antes que arriesgarme por dos pesos más.',
+      'Con el gym subís tu velocidad, a mí me cambió la vida caminar más rápido.',
+      'Cuidado con quedarte sin plata en la calle de noche, es peor momento para eso.',
+      'Escuché que de noche los ladrones salen más seguido, mejor volvé temprano a tu casa.',
+      'La verdad, esta ciudad de día es tranquila, el problema son esos dos barrios.',
+      'Si te atacan, corré hacia tu casa o el auto, no te quedes ahí parado.',
+      'Yo trabajo en la oficina, es aburrido pero paga seguro cada rato.',
+      'Con lo que pagan en la oficina, capaz te conviene ahorrar para no tener que ir a esos barrios.'
+    ];
+  }
+  let npcPhrases = null;
+  function randomNpcPhrase(){
+    if(!npcPhrases) npcPhrases = buildNpcPhrases();
+    return npcPhrases[Math.floor(Math.random() * npcPhrases.length)];
+  }
+
+  function randomSidewalkPoint(){
+    const axis = Math.random() < 0.5 ? 'v' : 'h';
+    if(axis === 'v'){
+      const line = SIDEWALK_V_LINES[Math.floor(Math.random() * SIDEWALK_V_LINES.length)];
+      return { axis, x: line, y: 40 + Math.random() * (WORLD_H - 80) };
+    }
+    const line = SIDEWALK_H_LINES[Math.floor(Math.random() * SIDEWALK_H_LINES.length)];
+    return { axis, y: line, x: 40 + Math.random() * (WORLD_W - 80) };
+  }
+
+  function spawnNpc(){
+    let p, tries = 0;
+    do{ p = randomSidewalkPoint(); tries++; } while(isInDangerZone(p.x, p.y) && tries < 12);
+    npcs.push({
+      x: p.x, y: p.y, axis: p.axis,
+      dir: Math.random() < 0.5 ? 1 : -1,
+      speed: NPC_SPEED_MIN + Math.random() * NPC_SPEED_VAR,
+      r: 9 + Math.random() * 2,
+      color: NPC_COLORS[Math.floor(Math.random() * NPC_COLORS.length)],
+      bobPhase: Math.random() * Math.PI * 2,
+      talking: false, talkTimer: 0, talkCooldown: 0, phrase: '',
+      downed: false, downedTimer: 0,
+      isPolice: false, policeState: 'patrol',
+      chaseFromX: 0, chaseFromY: 0, chaseFromAxis: 'v', chaseFromDir: 1
+    });
+  }
+  for(let i = 0; i < NPC_COUNT; i++) spawnNpc();
+
+  // Elegimos NPCs al azar para que sean policías. Por ahora solo quedan
+  // marcados (isPolice = true) y con un color distinto para reconocerlos;
+  // el comportamiento/función de policía se agrega más adelante.
+  (function assignPoliceNpcs(){
+    const count = Math.min(NPC_POLICE_COUNT, npcs.length);
+    const chosen = new Set();
+    while(chosen.size < count){
+      chosen.add(Math.floor(Math.random() * npcs.length));
+    }
+    chosen.forEach(i => {
+      npcs[i].isPolice = true;
+      npcs[i].color = POLICE_COLOR;
+    });
+  })();
+
+  // ---------- Policía ----------
+  // Mientras patrullan, los policías caminan como cualquier peatón. Si el
+  // jugador atropella a alguien con el auto, queda "buscado" un rato: los
+  // policías que estén cerca del hecho salen a perseguirlo enseguida, y
+  // cualquier otro policía que patrulle y se le acerque mientras dura la
+  // búsqueda también se suma a la persecución. Como persiguen a pie, es fácil
+  // escaparles en el auto; el riesgo real es que te agarren caminando. Si te
+  // alcanzan, te cobran una multa y ahí termina: cada policía vuelve a su
+  // punto de patrulla y sigue caminando como si nada.
+  const WANTED_DURATION = 22; // segundos que dura la búsqueda tras el delito
+  const POLICE_ALERT_ON_CRIME_RADIUS = 420; // policías tan cerca del hecho reaccionan al toque
+  const POLICE_DETECT_RADIUS = 240; // mientras está buscado, un policía que patrulla y se acerca esto también se suma
+  const POLICE_CONTACT_RADIUS = 22;
+  const POLICE_GIVEUP_DIST = POLICE_DETECT_RADIUS * 1.8; // si el jugador se escapa demasiado lejos, el policía se rinde
+  const POLICE_CHASE_SPEED = baseSpeed * 1.15; // un poco más rápido que caminando, pero mucho más lento que el auto
+  const POLICE_RETURN_SPEED = baseSpeed * 0.9;
+  const POLICE_FINE_MIN = 15, POLICE_FINE_VAR = 30; // monto de la multa como deuda, no se cobra al toque
+  let wantedTimer = 0;
+  const fines = []; // multas pendientes: { id, description, amount }. Se pagan desde la app Bank del celular.
+  let fineIdCounter = 1;
+
+  function startPoliceChase(n){
+    n.chaseFromX = n.x; n.chaseFromY = n.y;
+    n.chaseFromAxis = n.axis; n.chaseFromDir = n.dir;
+    n.policeState = 'chase';
+    n.talking = false;
+  }
+
+  function triggerWanted(x, y){
+    const wasWanted = wantedTimer > 0;
+    wantedTimer = WANTED_DURATION;
+    if(!wasWanted) showStreetToast('\u00a1Un polic\u00eda te vio! Te est\u00e1n buscando.');
+    for(const n of npcs){
+      if(!n.isPolice || n.policeState !== 'patrol' || n.downed) continue;
+      if(Math.hypot(n.x - x, n.y - y) < POLICE_ALERT_ON_CRIME_RADIUS) startPoliceChase(n);
+    }
+  }
+
+  function arrestPlayer(){
+    wantedTimer = 0;
+    const amount = Math.max(1, Math.round(POLICE_FINE_MIN + Math.random() * POLICE_FINE_VAR));
+    fines.push({ id: fineIdCounter++, description: 'Atropello a un peat\u00f3n', amount });
+    showStreetToast('\u00a1La polic\u00eda te atrap\u00f3! Te labraron una multa de $' + amount.toLocaleString('es-ES') + '. Pod\u00e9s pagarla desde el Bank del celular.');
+    for(const other of npcs){ if(other.isPolice && other.policeState === 'chase') other.policeState = 'return'; }
+  }
+
+  function payFine(id){
+    const idx = fines.findIndex(f => f.id === id);
+    if(idx === -1) return;
+    const fine = fines[idx];
+    if(playerMoney < fine.amount){
+      phoneMsgEl.textContent = 'No ten\u00e9s suficiente efectivo para pagar esta multa.';
+      return;
+    }
+    playerMoney -= fine.amount;
+    fines.splice(idx, 1);
+    updateMoneyUI();
+    renderBankScreen();
+  }
+
+  function updatePolice(dt){
+    if(wantedTimer > 0) wantedTimer = Math.max(0, wantedTimer - dt);
+    let arrestedThisFrame = false;
+    for(const n of npcs){
+      if(!n.isPolice || n.downed) continue;
+      if(n.policeState === 'patrol'){
+        if(wantedTimer > 0 && Math.hypot(n.x - player.x, n.y - player.y) < POLICE_DETECT_RADIUS) startPoliceChase(n);
+      } else if(n.policeState === 'chase'){
+        const dist = stepToward(n, player.x, player.y, dt, POLICE_CHASE_SPEED);
+        if(!arrestedThisFrame && dist < POLICE_CONTACT_RADIUS){
+          arrestedThisFrame = true;
+          arrestPlayer();
+        } else if(wantedTimer <= 0 || dist > POLICE_GIVEUP_DIST){
+          n.policeState = 'return';
+        }
+      } else if(n.policeState === 'return'){
+        const dist = stepToward(n, n.chaseFromX, n.chaseFromY, dt, POLICE_RETURN_SPEED);
+        if(dist < 6){
+          n.x = n.chaseFromX; n.y = n.chaseFromY;
+          n.axis = n.chaseFromAxis; n.dir = n.chaseFromDir;
+          n.policeState = 'patrol';
+        }
+      }
+    }
+  }
+
+  function updateNpcs(dt){
+    for(const n of npcs){
+      if(n.isPolice && n.policeState !== 'patrol') continue; // se mueve aparte, en updatePolice
+      if(n.talking){
+        n.talkTimer -= dt;
+        if(n.talkTimer <= 0){
+          n.talking = false;
+          if(!n.downed) n.talkCooldown = NPC_TALK_COOLDOWN;
+          if(talkingNpc === n){ talkingNpc = null; hideNpcToast(); }
+        }
+      }
+      if(n.downed){
+        n.downedTimer -= dt;
+        if(n.downedTimer <= 0){
+          n.downed = false;
+          n.talkCooldown = NPC_TALK_COOLDOWN;
+        }
+        continue; // no camina mientras está tirado en el piso
+      }
+      if(n.talking) continue; // se queda quieto mientras habla
+      if(n.talkCooldown > 0) n.talkCooldown -= dt;
+      n.bobPhase += dt * n.speed * 0.28;
+      if(n.axis === 'v'){
+        const prevY = n.y;
+        n.y += n.dir * n.speed * dt;
+        if(n.y <= 30 || n.y >= WORLD_H - 30){
+          n.dir *= -1;
+          n.y = clamp(n.y, 30, WORLD_H - 30);
+        } else {
+          for(const hl of SIDEWALK_H_LINES){
+            if((prevY - hl) * (n.y - hl) <= 0 && prevY !== n.y){
+              if(Math.random() < NPC_TURN_CHANCE){
+                n.axis = 'h'; n.y = hl; n.dir = Math.random() < 0.5 ? 1 : -1;
+              }
+              break;
+            }
+          }
+        }
+      } else {
+        const prevX = n.x;
+        n.x += n.dir * n.speed * dt;
+        if(n.x <= 30 || n.x >= WORLD_W - 30){
+          n.dir *= -1;
+          n.x = clamp(n.x, 30, WORLD_W - 30);
+        } else {
+          for(const vl of SIDEWALK_V_LINES){
+            if((prevX - vl) * (n.x - vl) <= 0 && prevX !== n.x){
+              if(Math.random() < NPC_TURN_CHANCE){
+                n.axis = 'v'; n.x = vl; n.dir = Math.random() < 0.5 ? 1 : -1;
+              }
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  function drawNpc(n){
+    if(n.downed){
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath();
+      ctx.ellipse(n.x + 2, n.y + 3, n.r * 1.35, n.r * 0.55, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = n.color;
+      ctx.strokeStyle = '#1a1210';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(n.x, n.y, n.r * 1.2, n.r * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+
+      ctx.fillStyle = '#D9BFA0';
+      ctx.beginPath();
+      ctx.arc(n.x - n.r * 0.95, n.y, n.r * 0.4, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+
+      if(n.isPolice){
+        ctx.fillStyle = '#16233F';
+        ctx.strokeStyle = '#0a1226';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.ellipse(n.x - n.r * 1.3, n.y, n.r * 0.42, n.r * 0.3, 0, Math.PI, 0);
+        ctx.fill(); ctx.stroke();
+      }
+
+      if(n.talking){
+        ctx.font = '13px "JetBrains Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillStyle = '#EDE8DC';
+        ctx.fillText('\ud83e\udd15', n.x, n.y - n.r * 1.1);
+      }
+      return;
+    }
+
+    const bob = Math.sin(n.bobPhase) * 1.6;
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath();
+    ctx.ellipse(n.x + 2, n.y + 5, n.r * 0.8, n.r * 0.45, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = n.color;
+    ctx.strokeStyle = '#1a1210';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.ellipse(n.x, n.y - 2 + bob * 0.3, n.r * 0.62, n.r * 0.82, 0, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+
+    ctx.fillStyle = '#D9BFA0';
+    ctx.beginPath();
+    ctx.arc(n.x, n.y - n.r * 0.95 + bob * 0.3, n.r * 0.42, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+
+    if(n.isPolice){
+      const headX = n.x, headY = n.y - n.r * 0.95 + bob * 0.3, headR = n.r * 0.42;
+      // gorra: visera oscura sobre la cabeza, bien distinta al pelo de un peatón normal
+      ctx.fillStyle = '#16233F';
+      ctx.strokeStyle = '#0a1226';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(headX, headY - headR * 0.32, headR * 1.08, headR * 0.78, 0, Math.PI, 0);
+      ctx.fill(); ctx.stroke();
+      ctx.fillRect(headX - headR * 0.95, headY - headR * 0.4, headR * 1.9, headR * 0.3);
+      // placa dorada en el pecho
+      ctx.fillStyle = '#F4D35E';
+      ctx.strokeStyle = '#8a6d1c';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.arc(n.x - n.r * 0.2, n.y - n.r * 0.05 + bob * 0.3, n.r * 0.14, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+    }
+
+    if(n.talking){
+      ctx.font = '13px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillStyle = '#EDE8DC';
+      ctx.fillText('\ud83d\udcac', n.x, n.y - n.r * 1.9);
+    }
+    if(n.isPolice && n.policeState === 'chase'){
+      ctx.font = '13px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillStyle = Math.sin(n.bobPhase * 3) > 0 ? '#ff5c4d' : '#4fa3e8';
+      ctx.fillText('\u2757', n.x, n.y - n.r * 1.9);
+    }
+  }
+
+  let talkingNpc = null;
+  function showNpcToast(text){
+    npcToastEl.textContent = text;
+    npcToastEl.classList.add('show');
+  }
+  function hideNpcToast(){
+    npcToastEl.classList.remove('show');
+  }
+  function nearNpc(){
+    let best = null, bestDist = NPC_TALK_RADIUS;
+    for(const n of npcs){
+      if(n.talking || n.talkCooldown > 0 || n.downed) continue;
+      const d = Math.hypot(player.x - n.x, player.y - n.y);
+      if(d < bestDist){ bestDist = d; best = n; }
+    }
+    return best;
+  }
+  function talkToNpc(n){
+    n.talking = true;
+    n.talkTimer = NPC_TALK_DURATION;
+    n.phrase = randomNpcPhrase();
+    talkingNpc = n;
+    showNpcToast(n.phrase);
+  }
+
+  function npcAt(x, y, r){
+    for(const n of npcs){
+      if(n.downed) continue;
+      const dx = x - n.x, dy = y - n.y;
+      const minDist = r + n.r * 0.8;
+      if(dx*dx + dy*dy < minDist*minDist) return n;
+    }
+    return null;
+  }
+  function runOverNpc(n){
+    n.downed = true;
+    n.downedTimer = NPC_DOWNED_DURATION;
+    n.talking = true;
+    n.talkTimer = NPC_HURT_VOICE_DURATION;
+    n.phrase = NPC_HURT_PHRASES[Math.floor(Math.random() * NPC_HURT_PHRASES.length)];
+    talkingNpc = n;
+    showNpcToast(n.phrase);
+    triggerWanted(n.x, n.y);
+  }
+
+  function resolveEncounter(enemy){
+    dangerGraceTimer = POST_ENCOUNTER_GRACE;
+    if(enemy.type === 'thief'){
+      if(playerMoney > 0){
+        const amount = Math.max(1, Math.round(playerMoney * (0.15 + Math.random() * 0.2)));
+        playerMoney = Math.max(0, playerMoney - amount);
+        updateMoneyUI();
+        showStreetToast('\u00a1Te robaron $' + amount.toLocaleString('es-ES') + ' en ' + enemy.zone.name + '!');
+      }
+    } else {
+      const withGun = enemy.weapon === 'gun';
+      health = Math.max(0, health - (withGun ? (30 + Math.random() * 18) : (35 + Math.random() * 20)));
+      if(health <= 0) knockOutPlayer(enemy.zone);
+      else showStreetToast(withGun ? '\u00a1Te dio un culatazo en ' + enemy.zone.name + '!' : '\u00a1Te atacaron a cuchillazos en ' + enemy.zone.name + '!');
+    }
+  }
+
+  function knockOutPlayer(zone){
+    // Perdiste el conocimiento: perdes efectivo y un objeto, y aparecés en tu casa.
+    const cashLost = Math.round(playerMoney * 0.5);
+    playerMoney = Math.max(0, playerMoney - cashLost);
+    updateMoneyUI();
+
+    const heldSlots = [];
+    for(let i = 0; i < INVENTORY_SIZE; i++){ if(i !== PHONE_SLOT && inventory[i]) heldSlots.push(i); }
+    if(heldSlots.length > 0){
+      const idx = heldSlots[Math.floor(Math.random() * heldSlots.length)];
+      inventory[idx] = null;
+      updateHotbar();
+    }
+
+    if(driving){ driving = false; if(typeof updateDriveUI === 'function') updateDriveUI(); }
+    if(playerHouse){
+      player.x = clamp(playerHouse.x + playerHouse.w/2, player.r, WORLD_W - player.r);
+      player.y = clamp(playerHouse.y + playerHouse.h + 20, player.r, WORLD_H - player.r);
+    }
+    health = 40;
+    showStreetToast('Te dejaron inconsciente en ' + zone.name + '. Despertaste en tu casa.');
+    // La conmocion espanta a los demas: se retiran los enemigos activos de esa zona.
+    for(let i = enemies.length - 1; i >= 0; i--){ if(enemies[i].zone === zone) enemies.splice(i, 1); }
+  }
+
+  // ---------- Botines en las zonas peligrosas (motivo para arriesgarse a entrar) ----------
+  // Cada tanto aparece plata tirada en el piso, solo dentro de las zonas
+  // peligrosas. Es la unica plata "extra" del mapa (aparte del trabajo y el
+  // gym): para agarrarla hay que meterse en la zona y bancarse el riesgo de
+  // toparte con un ladron o un atacante. Asi entrar tiene un motivo real.
+  const STASH_MAX_PER_ZONE = 3;
+  const STASH_SPAWN_CHECK_INTERVAL = 8;
+  const STASH_SPAWN_CHANCE = 0.35;
+  const STASH_PICKUP_RADIUS = 22;
+  const STASH_XP = 6;
+  const stashes = [];
+  let stashSpawnTimer = 0;
+  DANGER_ZONES.forEach(zone => { for(let i = 0; i < 2; i++) spawnStash(zone); });
+
+  function spawnStash(zone){
+    for(let attempt = 0; attempt < 20; attempt++){
+      const x = zone.x + 30 + Math.random() * (zone.w - 60);
+      const y = zone.y + 30 + Math.random() * (zone.h - 60);
+      if(collides(x, y, 18)) continue;
+      const big = Math.random() < 0.12; // fajo grande, mas raro
+      const amount = big ? (90 + Math.floor(Math.random() * 60)) : (25 + Math.floor(Math.random() * 40));
+      stashes.push({ x, y, r: 13, amount, big, zone });
+      return;
+    }
+  }
+
+  function updateStashSpawning(dt){
+    stashSpawnTimer += dt;
+    if(stashSpawnTimer < STASH_SPAWN_CHECK_INTERVAL) return;
+    stashSpawnTimer = 0;
+    DANGER_ZONES.forEach(zone => {
+      const count = stashes.reduce((n, s) => n + (s.zone === zone ? 1 : 0), 0);
+      if(count >= STASH_MAX_PER_ZONE) return;
+      if(Math.random() < STASH_SPAWN_CHANCE) spawnStash(zone);
+    });
+  }
+
+  function updateStashes(dt){
+    updateStashSpawning(dt);
+    for(let i = stashes.length - 1; i >= 0; i--){
+      const s = stashes[i];
+      const d = Math.hypot(player.x - s.x, player.y - s.y);
+      if(d < STASH_PICKUP_RADIUS){
+        playerMoney += s.amount;
+        updateMoneyUI();
+        gainXp(STASH_XP);
+        showStreetToast((s.big ? '\u00a1Fajo de billetes! +$' : '\u00a1Encontraste $') + s.amount.toLocaleString('es-ES') + ' en ' + s.zone.name + '!');
+        stashes.splice(i, 1);
+      }
+    }
+  }
+
+  // ---------- Minijuego de pelea (al alcanzarte un ladron) ----------
+  // Si el ladron te agarra, en vez de robarte directo aparece un duelo:
+  // hay que tocar "GOLPEAR" cuando el marcador pasa por la zona verde.
+  // Si le ganas 3 golpes antes que el, no te roba nada y se va corriendo.
+  // Si perdes, se resuelve el robo como siempre.
+  const FIGHT_HITS_TO_WIN = 3;
+  const FIGHT_CYCLE_SECONDS = 0.85;
+  const FIGHT_ZONE_WIDTH = 22;
+  let fightActive = false;
+  let fightEnemy = null;
+  let fightPlayerHits = 0;
+  let fightEnemyHits = 0;
+  let fightGameTime = 0;
+  let fightMarkerPercent = 0;
+  let fightZoneStart = 0;
+
+  function updateFightHpUI(){
+    fightPlayerHpEl.style.width = Math.max(0, 100 - (fightEnemyHits / FIGHT_HITS_TO_WIN) * 100) + '%';
+    fightEnemyHpEl.style.width = Math.max(0, 100 - (fightPlayerHits / FIGHT_HITS_TO_WIN) * 100) + '%';
+  }
+
+  function newFightRound(){
+    fightZoneStart = Math.random() * (100 - FIGHT_ZONE_WIDTH);
+    fightZoneEl.style.left = fightZoneStart + '%';
+    fightZoneEl.style.width = FIGHT_ZONE_WIDTH + '%';
+    fightGameTime = Math.random() * FIGHT_CYCLE_SECONDS;
+  }
+
+  function updateFightMinigame(dt){
+    if(!fightActive) return;
+    fightGameTime += dt;
+    const phase = (fightGameTime % FIGHT_CYCLE_SECONDS) / FIGHT_CYCLE_SECONDS;
+    const f = phase < 0.5 ? phase * 2 : (1 - phase) * 2;
+    fightMarkerPercent = f * 100;
+    fightMarkerEl.style.left = fightMarkerPercent + '%';
+  }
+
+  function startFight(enemy){
+    fightActive = true;
+    fightEnemy = enemy;
+    enemy.state = 'fight';
+    fightPlayerHits = 0;
+    fightEnemyHits = 0;
+    fightTitleEl.textContent = '\u00a1Un ladr\u00f3n te alcanz\u00f3!';
+    fightEnemyLabelEl.textContent = 'Ladr\u00f3n';
+    fightMsgEl.textContent = 'Toc\u00e1 "GOLPEAR" cuando el marcador pase por la zona verde.';
+    fightMsgEl.className = 'gym-msg';
+    updateFightHpUI();
+    fightModal.classList.add('open');
+    newFightRound();
+  }
+
+  function endFight(won){
+    fightActive = false;
+    fightModal.classList.remove('open');
+    const enemy = fightEnemy;
+    fightEnemy = null;
+    if(!enemy) return;
+    dangerGraceTimer = POST_ENCOUNTER_GRACE;
+    if(won){
+      showStreetToast('\u00a1Le ganaste al ladr\u00f3n! No te rob\u00f3 nada.');
+      enemy.state = 'flee';
+    } else {
+      resolveEncounter(enemy);
+      enemy.state = 'flee';
+    }
+  }
+
+  fightHitBtn.addEventListener('click', () => {
+    if(!fightActive) return;
+    const inZone = fightMarkerPercent >= fightZoneStart && fightMarkerPercent <= fightZoneStart + FIGHT_ZONE_WIDTH;
+    if(inZone){
+      fightPlayerHits++;
+      fightMsgEl.textContent = '\u00a1Buen golpe!';
+      fightMsgEl.className = 'gym-msg success';
+    } else {
+      fightEnemyHits++;
+      fightMsgEl.textContent = 'Fallaste, te contragolpea.';
+      fightMsgEl.className = 'gym-msg fail';
+    }
+    updateFightHpUI();
+    if(fightPlayerHits >= FIGHT_HITS_TO_WIN){ endFight(true); return; }
+    if(fightEnemyHits >= FIGHT_HITS_TO_WIN){ endFight(false); return; }
+    newFightRound();
+  });
+
+  function stepToward(e, tx, ty, dt, speed){
+    const dx = tx - e.x, dy = ty - e.y;
+    const dist = Math.hypot(dx, dy);
+    if(dist < 1) return dist;
+    const step = Math.min(dist, speed * dt);
+    e.x += (dx / dist) * step;
+    e.y += (dy / dist) * step;
+    return dist - step;
+  }
+
+  function updateEnemies(dt){
+    updateEnemySpawning(dt);
+    if(dangerGraceTimer > 0) dangerGraceTimer = Math.max(0, dangerGraceTimer - dt);
+
+    for(let i = enemies.length - 1; i >= 0; i--){
+      const e = enemies[i];
+      if(e.state === 'patrol'){
+        const distToPlayer = Math.hypot(player.x - e.x, player.y - e.y);
+        if(dangerGraceTimer <= 0 && distToPlayer < ENEMY_DETECT_RADIUS){
+          e.state = 'chase';
+        } else {
+          e.patrolTimer -= dt;
+          if(e.patrolTimer <= 0){
+            const ang = Math.random() * Math.PI * 2;
+            const rad = 40 + Math.random() * 90;
+            e.patrolX = clamp(e.homeX + Math.cos(ang) * rad, e.r, WORLD_W - e.r);
+            e.patrolY = clamp(e.homeY + Math.sin(ang) * rad, e.r, WORLD_H - e.r);
+            e.patrolTimer = 2 + Math.random() * 3;
+          }
+          stepToward(e, e.patrolX, e.patrolY, dt, e.speed * 0.4);
+        }
+      } else if(e.state === 'chase'){
+        let distToPlayer;
+        if(e.type === 'attacker' && e.weapon === 'gun'){
+          distToPlayer = Math.hypot(player.x - e.x, player.y - e.y);
+          if(distToPlayer > GUN_SHOOT_RANGE){
+            distToPlayer = stepToward(e, player.x, player.y, dt, e.speed);
+          } else if(distToPlayer < GUN_KEEP_DISTANCE){
+            // el jugador se le pego demasiado: retrocede para poder seguir tirando a distancia
+            const bx = e.x - (player.x - e.x), by = e.y - (player.y - e.y);
+            stepToward(e, bx, by, dt, e.speed * 0.7);
+          }
+          e.shootTimer -= dt;
+          if(distToPlayer <= GUN_SHOOT_RANGE && e.shootTimer <= 0 && dangerGraceTimer <= 0){
+            fireBullet(e);
+            e.shootTimer = GUN_SHOOT_COOLDOWN_MIN + Math.random() * GUN_SHOOT_COOLDOWN_VAR;
+          }
+        } else {
+          distToPlayer = stepToward(e, player.x, player.y, dt, e.speed);
+        }
+        if(distToPlayer > ENEMY_DETECT_RADIUS * 1.6){
+          e.state = 'flee'; // el jugador se escapó demasiado lejos, el bandido se rinde
+        } else if(distToPlayer < ENEMY_CONTACT_RADIUS && dangerGraceTimer <= 0){
+          if(e.type === 'thief' && !fightActive){
+            startFight(e);
+          } else {
+            resolveEncounter(e);
+            e.state = 'flee';
+          }
+        }
+      } else if(e.state === 'flee'){
+        const distToHome = stepToward(e, e.homeX, e.homeY, dt, e.speed * 1.15);
+        if(distToHome < 6) enemies.splice(i, 1);
+      }
+    }
+  }
+
+  function updateDangerZone(dt){
+    const zone = dangerZoneAt(player.x, player.y);
+    const zoneName = zone ? zone.name : null;
+    if(zoneName !== lastDangerZoneName){
+      if(zone) showStreetToast('Entraste a una zona peligrosa: ' + zone.name);
+      else if(lastDangerZoneName) showStreetToast('Saliste de la zona peligrosa.');
+      lastDangerZoneName = zoneName;
+    }
+    updateEnemies(dt);
+    updateBullets(dt);
+    updateStashes(dt);
+  }
+
+  // ---------- XP por explorar y por moverse de noche ----------
+  const EXPLORE_XP_DISTANCE = 400; // unidades de mundo recorridas por cada XP de exploracion
+  const EXPLORE_XP_AMOUNT = 5;
+  let exploreDistanceAccum = 0;
+  let lastXpX = null, lastXpY = null;
+
+  const NIGHT_XP_INTERVAL = 8; // segundos de noche activa (moviendose) para dar XP de riesgo
+  const NIGHT_XP_AMOUNT = 2;
+  let nightXpTimer = 0;
+
+  function updateExplorationXp(dt){
+    if(lastXpX === null){ lastXpX = player.x; lastXpY = player.y; nightXpTimer = 0; return; }
+    const d = Math.hypot(player.x - lastXpX, player.y - lastXpY);
+    lastXpX = player.x; lastXpY = player.y;
+    exploreDistanceAccum += d;
+    while(exploreDistanceAccum >= EXPLORE_XP_DISTANCE){
+      exploreDistanceAccum -= EXPLORE_XP_DISTANCE;
+      gainXp(EXPLORE_XP_AMOUNT);
+    }
+
+    // XP de riesgo por moverse de noche (a pie o en auto)
+    const isMovingNow = d > 0.5;
+    if(!isNight() || !isMovingNow){ nightXpTimer = 0; return; }
+    nightXpTimer += dt;
+    while(nightXpTimer >= NIGHT_XP_INTERVAL){
+      nightXpTimer -= NIGHT_XP_INTERVAL;
+      gainXp(NIGHT_XP_AMOUNT);
+    }
+  }
+
+  function update(dt){
+    if(fightActive){ updateFightMinigame(dt); return; }
+    updateDayNight(dt);
+    if(driving && vehicle) updateVehicle(dt); else updatePlayer(dt);
+    updateStats(dt);
+    updateDangerZone(dt);
+    updateNpcs(dt);
+    updatePolice(dt);
+    updateExplorationXp(dt);
+    updateParticles(dt);
+    if(shopOpen && (driving || !nearShop() || !isShopOpenHours())) closeShop();
+    if(gymOpen && (driving || !nearGym())) closeGym();
+    if(officeOpen && (driving || !nearOffice())) closeOffice();
+    if(bankOpen && (driving || !nearBank())) closeBank();
+    updateGymGame(dt);
+    updateOfficeJob(dt);
+    updateActionButton();
+  }
+
+  // ---------- Render ----------
+  function drawHouse(hs){
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    ctx.fillRect(hs.x + 6, hs.y + 7, hs.w, hs.h);
+    ctx.fillStyle = hs.wall;
+    ctx.fillRect(hs.x, hs.y, hs.w, hs.h);
+    const inset = 6;
+    ctx.fillStyle = hs.roof;
+    ctx.fillRect(hs.x + inset, hs.y + inset, hs.w - inset*2, hs.h - inset*2);
+    ctx.strokeStyle = darken(hs.roof, 0.25);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    if(hs.w >= hs.h){
+      ctx.moveTo(hs.x + hs.w/2, hs.y + inset);
+      ctx.lineTo(hs.x + hs.w/2, hs.y + hs.h - inset);
+    } else {
+      ctx.moveTo(hs.x + inset, hs.y + hs.h/2);
+      ctx.lineTo(hs.x + hs.w - inset, hs.y + hs.h/2);
+    }
+    ctx.stroke();
+
+    if(hs.hasLight && isNight()){
+      const wx = hs.x + hs.w * 0.28, wy = hs.y + hs.h * 0.55;
+      const wSize = Math.min(hs.w, hs.h) * 0.18;
+      ctx.fillStyle = '#FFE1A0';
+      ctx.fillRect(wx - wSize/2, wy - wSize/2, wSize, wSize);
+      lightSources.push({ type: 'radial', x: wx, y: wy, radius: wSize * 5.5,
+        colorNear: 'rgba(255,214,120,0.9)', colorFar: 'rgba(255,180,90,0)' });
+    }
+
+    if(hs.isGym){
+      ctx.fillStyle = 'rgba(15,17,13,0.85)';
+      ctx.strokeStyle = 'rgba(79,163,232,.7)';
+      ctx.lineWidth = 1;
+      const labelW = 52, labelH = 18;
+      const lx = hs.x + hs.w/2 - labelW/2, ly = hs.y - labelH - 10;
+      roundRectPath(ctx, lx, ly, labelW, labelH, 4);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#4FA3E8';
+      ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('GYM', hs.x + hs.w/2, ly + labelH/2 + 1);
+    } else if(hs.isPlayerHouse){
+      ctx.fillStyle = 'rgba(15,17,13,0.85)';
+      ctx.strokeStyle = 'rgba(232,163,61,.6)';
+      ctx.lineWidth = 1;
+      const labelW = 68, labelH = 18;
+      const lx = hs.x + hs.w/2 - labelW/2, ly = hs.y - labelH - 10;
+      roundRectPath(ctx, lx, ly, labelW, labelH, 4);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#E8A33D';
+      ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('TU CASA', hs.x + hs.w/2, ly + labelH/2 + 1);
+    } else if(hs.isOffice){
+      ctx.fillStyle = 'rgba(15,17,13,0.85)';
+      ctx.strokeStyle = 'rgba(140,151,166,.7)';
+      ctx.lineWidth = 1;
+      const labelW = 68, labelH = 18;
+      const lx = hs.x + hs.w/2 - labelW/2, ly = hs.y - labelH - 10;
+      roundRectPath(ctx, lx, ly, labelW, labelH, 4);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#C3CDD8';
+      ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('OFICINA', hs.x + hs.w/2, ly + labelH/2 + 1);
+    } else if(hs.isBank){
+      ctx.fillStyle = 'rgba(15,17,13,0.85)';
+      ctx.strokeStyle = 'rgba(62,168,107,.7)';
+      ctx.lineWidth = 1;
+      const labelW = 60, labelH = 18;
+      const lx = hs.x + hs.w/2 - labelW/2, ly = hs.y - labelH - 10;
+      roundRectPath(ctx, lx, ly, labelW, labelH, 4);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#3EA86B';
+      ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('BANCO', hs.x + hs.w/2, ly + labelH/2 + 1);
+    }
+  }
+
+  function drawGarage(g){
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.fillRect(g.x + 5, g.y + 6, g.w, g.h);
+    ctx.fillStyle = '#5b5b53';
+    ctx.fillRect(g.x, g.y, g.w, g.h);
+    ctx.fillStyle = '#77766c';
+    ctx.fillRect(g.x + 4, g.y + 4, g.w - 8, g.h - 8);
+    ctx.fillStyle = '#2b2b26';
+    if(g.side === 'left') ctx.fillRect(g.x, g.y + 6, 6, g.h - 12);
+    else if(g.side === 'right') ctx.fillRect(g.x + g.w - 6, g.y + 6, 6, g.h - 12);
+    else if(g.side === 'top') ctx.fillRect(g.x + 6, g.y, g.w - 12, 6);
+    else ctx.fillRect(g.x + 6, g.y + g.h - 6, g.w - 12, 6);
+  }
+
+  function drawShop(s){
+    ctx.fillStyle = 'rgba(0,0,0,0.24)';
+    ctx.fillRect(s.x + 6, s.y + 7, s.w, s.h);
+    ctx.fillStyle = '#33463e';
+    ctx.fillRect(s.x, s.y, s.w, s.h);
+    const inset = 7;
+    ctx.fillStyle = '#3E8A76';
+    ctx.fillRect(s.x + inset, s.y + inset, s.w - inset*2, s.h - inset*2);
+    const stripeW = (s.w - inset*2) / 6;
+    for(let i = 0; i < 6; i++){
+      ctx.fillStyle = i % 2 === 0 ? '#E8E4D8' : '#3E8A76';
+      ctx.fillRect(s.x + inset + i*stripeW, s.y + inset, stripeW, 10);
+    }
+    ctx.fillStyle = 'rgba(15,17,13,0.85)';
+    ctx.strokeStyle = 'rgba(232,163,61,.6)';
+    ctx.lineWidth = 1;
+    const labelW = 58, labelH = 18;
+    const lx = s.x + s.w/2 - labelW/2, ly = s.y - labelH - 10;
+    roundRectPath(ctx, lx, ly, labelW, labelH, 4);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#E8A33D';
+    ctx.font = '10px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('TIENDA', s.x + s.w/2, ly + labelH/2 + 1);
+  }
+
+  function drawTree(t){
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    ctx.beginPath(); ctx.ellipse(t.x + 4, t.y + 5, t.r * 0.85, t.r * 0.55, 0, 0, Math.PI * 2); ctx.fill();
+    const grad = ctx.createRadialGradient(t.x - t.r*0.3, t.y - t.r*0.3, 2, t.x, t.y, t.r);
+    grad.addColorStop(0, PALETTE.treeCanopyLight);
+    grad.addColorStop(1, PALETTE.treeCanopy);
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(t.x, t.y, t.r, 0, Math.PI * 2); ctx.fill();
+  }
+
+  function roundRectPath(c, x, y, w, h, r){
+    c.beginPath();
+    c.moveTo(x + r, y);
+    c.arcTo(x + w, y, x + w, y + h, r);
+    c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r);
+    c.arcTo(x, y, x + w, y, r);
+    c.closePath();
+  }
+
+  function drawVehicle(v){
+    ctx.save();
+    ctx.translate(v.x, v.y);
+    ctx.rotate(v.angle);
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath(); ctx.ellipse(3, 4, v.w/2 + 2, v.h/2 + 2, 0, 0, Math.PI * 2); ctx.fill();
+
+    ctx.fillStyle = '#3E6FA8';
+    ctx.strokeStyle = '#20334a';
+    ctx.lineWidth = 1.5;
+    roundRectPath(ctx, -v.w/2, -v.h/2, v.w, v.h, 4);
+    ctx.fill(); ctx.stroke();
+
+    ctx.fillStyle = '#9FC3E8';
+    ctx.fillRect(v.w * 0.06, -v.h/2 + 3, v.w * 0.28, v.h - 6);
+
+    ctx.fillStyle = '#F4E7B0';
+    ctx.fillRect(v.w/2 - 3, -v.h/2 + 2, 3, 3);
+    ctx.fillRect(v.w/2 - 3, v.h/2 - 5, 3, 3);
+
+    if(isNight()){
+      const lx = v.w/2 - 1.5, lyTop = -v.h/2 + 3.5, lyBot = v.h/2 - 3.5;
+      const beamLen = 70, halfAngle = 0.34;
+      for(const ly of [lyTop, lyBot]){
+        const wx = v.x + Math.cos(v.angle) * lx - Math.sin(v.angle) * ly;
+        const wy = v.y + Math.sin(v.angle) * lx + Math.cos(v.angle) * ly;
+        lightSources.push({ type: 'cone', x: wx, y: wy, radius: beamLen, angle: v.angle, halfAngle });
+      }
+      ctx.fillStyle = '#FFF3C4';
+      ctx.fillRect(v.w/2 - 3, -v.h/2 + 2, 3, 3);
+      ctx.fillRect(v.w/2 - 3, v.h/2 - 5, 3, 3);
+    }
+    ctx.restore();
+  }
+
+  function drawEnemy(e){
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath();
+    ctx.ellipse(e.x + 4, e.y + 5, e.r * 0.9, e.r * 0.55, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = e.type === 'attacker' ? '#a83232' : '#8a4fae';
+    ctx.strokeStyle = '#1a1210';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+
+    if(e.type === 'attacker' && e.weapon){
+      ctx.font = '11px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(e.weapon === 'gun' ? '\ud83d\udd2b' : '\ud83d\udd2a', e.x + e.r * 0.75, e.y - e.r * 0.6);
+    }
+
+    if(e.state === 'chase'){
+      ctx.fillStyle = '#ffd44d';
+      ctx.font = 'bold 13px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('!', e.x, e.y - e.r - 3);
+    }
+  }
+
+  function drawBullets(){
+    for(const b of bullets){
+      const ang = Math.atan2(b.vy, b.vx);
+      ctx.strokeStyle = 'rgba(255,233,160,0.55)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(b.x, b.y);
+      ctx.lineTo(b.x - Math.cos(ang) * 11, b.y - Math.sin(ang) * 11);
+      ctx.stroke();
+
+      ctx.fillStyle = '#FFE9A0';
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawStash(s){
+    const pulse = 0.5 + Math.sin(performance.now() / 260 + s.x) * 0.5;
+    ctx.save();
+    ctx.globalAlpha = 0.3 + pulse * 0.3;
+    ctx.fillStyle = s.big ? 'rgba(255,214,120,0.9)' : 'rgba(232,163,61,0.75)';
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r + 6 + pulse * 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath();
+    ctx.ellipse(s.x + 3, s.y + 4, s.r * 0.85, s.r * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = s.big ? '#FFE1A0' : '#E8A33D';
+    ctx.strokeStyle = '#1a1210';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+
+    ctx.fillStyle = '#11140d';
+    ctx.font = 'bold 12px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('$', s.x, s.y + 1);
+  }
+
+  function drawPlayer(){
+    const bob = player.moving ? Math.sin(bobTimer) * 1.5 : 0;
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath();
+    ctx.ellipse(player.x + 4, player.y + 5, player.r * 0.9, player.r * 0.55, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // torso
+    ctx.fillStyle = PALETTE.playerBody;
+    ctx.strokeStyle = '#2a2015';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(player.x, player.y - 2 - bob * 0.3, player.r * 0.66, player.r * 0.88, 0, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+
+    // cabeza
+    const headX = player.x, headY = player.y - player.r * 1.0 - bob * 0.3;
+    const headR = player.r * 0.48;
+    ctx.fillStyle = '#D9BFA0';
+    ctx.beginPath();
+    ctx.arc(headX, headY, headR, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+
+    // pelo, con el tono oscuro del jugador para que se reconozca de un vistazo
+    ctx.fillStyle = PALETTE.playerDark;
+    ctx.beginPath();
+    ctx.ellipse(headX, headY - headR * 0.3, headR * 1.08, headR * 0.72, 0, Math.PI, 0);
+    ctx.fill();
+
+    // indicador de hacia dónde está mirando/caminando
+    ctx.fillStyle = '#2a2015';
+    ctx.beginPath();
+    ctx.arc(headX + player.facing.x * headR * 0.85, headY + player.facing.y * headR * 0.85, headR * 0.24, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const drawables = []; // reutilizado cada frame para no generar basura (GC) y evitar bajones de FPS
+  function render(){
+    lightSources.length = 0;
+    ctx.fillStyle = '#11140d';
+    ctx.fillRect(0, 0, viewport.w, viewport.h);
+
+    const camX = Math.round(camera.x), camY = Math.round(camera.y);
+    const sw = Math.min(viewport.w, WORLD_W - camX);
+    const sh = Math.min(viewport.h, WORLD_H - camY);
+    ctx.drawImage(terrain, camX, camY, sw, sh, 0, 0, sw, sh);
+
+    ctx.save();
+    ctx.translate(-camX, -camY);
+
+    const margin = 140;
+    const vx0 = camX - margin, vx1 = camX + viewport.w + margin;
+    const vy0 = camY - margin, vy1 = camY + viewport.h + margin;
+    const inView = (o) =>
+      o.x + o.w > vx0 && o.x < vx1 &&
+      o.y + o.h > vy0 && o.y < vy1;
+    const inViewCircle = (t) =>
+      t.x + t.r > vx0 && t.x - t.r < vx1 &&
+      t.y + t.r > vy0 && t.y - t.r < vy1;
+
+    drawables.length = 0;
+    for(const hs of houses){ if(inView(hs)) drawables.push({ type:'house', obj:hs, sortY: hs.y + hs.h }); }
+    for(const g of garages){ if(inView(g)) drawables.push({ type:'garage', obj:g, sortY: g.y + g.h }); }
+    for(const t of trees){ if(!t.destroyed && inViewCircle(t)) drawables.push({ type:'tree', obj:t, sortY: t.y + t.r }); }
+    if(inView(shop)) drawables.push({ type:'shop', obj:shop, sortY: shop.y + shop.h });
+    for(const e of enemies){ if(inViewCircle(e)) drawables.push({ type:'enemy', obj:e, sortY: e.y }); }
+    for(const n of npcs){ if(inViewCircle(n)) drawables.push({ type:'npc', obj:n, sortY: n.y }); }
+    for(const s of stashes){ if(inViewCircle(s)) drawables.push({ type:'stash', obj:s, sortY: s.y }); }
+    if(vehicle) drawables.push({ type:'vehicle', obj:vehicle, sortY: vehicle.y });
+    if(!driving) drawables.push({ type:'player', obj:player, sortY: player.y });
+    drawables.sort((a, b) => a.sortY - b.sortY);
+    for(const d of drawables){
+      if(d.type === 'house') drawHouse(d.obj);
+      else if(d.type === 'garage') drawGarage(d.obj);
+      else if(d.type === 'shop') drawShop(d.obj);
+      else if(d.type === 'tree') drawTree(d.obj);
+      else if(d.type === 'vehicle') drawVehicle(d.obj);
+      else if(d.type === 'enemy') drawEnemy(d.obj);
+      else if(d.type === 'npc') drawNpc(d.obj);
+      else if(d.type === 'stash') drawStash(d.obj);
+      else drawPlayer();
+    }
+    drawParticles();
+    drawBullets();
+    ctx.restore();
+
+    const dn = dayNightColor(dayTime);
+    if(dn.a > 0.003){
+      ctx.fillStyle = `rgba(${dn.r | 0}, ${dn.g | 0}, ${dn.b | 0}, ${dn.a})`;
+      ctx.fillRect(0, 0, viewport.w, viewport.h);
+    }
+
+    if(isNight() && lightSources.length){
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for(const L of lightSources){
+        const sx = L.x - camX, sy = L.y - camY;
+        if(sx < -120 || sx > viewport.w + 120 || sy < -120 || sy > viewport.h + 120) continue;
+        if(L.type === 'cone'){
+          const grad = ctx.createRadialGradient(sx, sy, 1, sx, sy, L.radius);
+          grad.addColorStop(0, 'rgba(255,244,200,0.6)');
+          grad.addColorStop(0.55, 'rgba(255,224,160,0.25)');
+          grad.addColorStop(1, 'rgba(255,200,120,0)');
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.arc(sx, sy, L.radius, L.angle - L.halfAngle, L.angle + L.halfAngle);
+          ctx.closePath();
+          ctx.fill();
+        } else {
+          const grad = ctx.createRadialGradient(sx, sy, 1, sx, sy, L.radius);
+          grad.addColorStop(0, L.colorNear);
+          grad.addColorStop(1, L.colorFar);
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(sx, sy, L.radius, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+  }
+
+  const MINIMAP_RANGE = 640; // unidades del mundo visibles en el diámetro del minimapa
+  function renderMinimap(){
+    const size = minimapCanvas.width;
+    mctx.clearRect(0, 0, size, size);
+    const scale = size / MINIMAP_RANGE;
+    const originX = player.x - MINIMAP_RANGE / 2;
+    const originY = player.y - MINIMAP_RANGE / 2;
+    const toX = wx => (wx - originX) * scale;
+    const toY = wy => (wy - originY) * scale;
+
+    mctx.fillStyle = PALETTE.sidewalk;
+    for(const l of ROAD_LINES){
+      mctx.fillRect(toX(l - ROAD_WIDTH/2 - SIDEWALK_WIDTH), toY(0), Math.max(1, SIDEWALK_WIDTH * scale), WORLD_H * scale);
+      mctx.fillRect(toX(l + ROAD_WIDTH/2), toY(0), Math.max(1, SIDEWALK_WIDTH * scale), WORLD_H * scale);
+      mctx.fillRect(toX(0), toY(l - ROAD_WIDTH/2 - SIDEWALK_WIDTH), WORLD_W * scale, Math.max(1, SIDEWALK_WIDTH * scale));
+      mctx.fillRect(toX(0), toY(l + ROAD_WIDTH/2), WORLD_W * scale, Math.max(1, SIDEWALK_WIDTH * scale));
+    }
+    mctx.fillStyle = PALETTE.road;
+    for(const l of ROAD_LINES){
+      mctx.fillRect(toX(l - ROAD_WIDTH/2), toY(0), Math.max(1, ROAD_WIDTH * scale), WORLD_H * scale);
+      mctx.fillRect(toX(0), toY(l - ROAD_WIDTH/2), WORLD_W * scale, Math.max(1, ROAD_WIDTH * scale));
+    }
+
+    mctx.fillStyle = 'rgba(150,180,210,0.55)';
+    const mmR2 = MINIMAP_RANGE/2 + 40;
+    for(const g of garages){
+      if(Math.abs(g.x + g.w/2 - player.x) > mmR2 || Math.abs(g.y + g.h/2 - player.y) > mmR2) continue;
+      mctx.fillRect(toX(g.x), toY(g.y), Math.max(1, g.w * scale), Math.max(1, g.h * scale));
+    }
+    mctx.strokeStyle = 'rgba(220,60,60,0.85)';
+    mctx.lineWidth = 1.5;
+    for(const z of DANGER_ZONES){
+      mctx.strokeRect(toX(z.x), toY(z.y), z.w * scale, z.h * scale);
+    }
+    for(const e of enemies){
+      mctx.fillStyle = e.state === 'chase' ? '#ffd44d' : (e.type === 'attacker' ? '#c94f3d' : '#a86fd8');
+      mctx.beginPath();
+      mctx.arc(toX(e.x), toY(e.y), 2.5, 0, Math.PI * 2);
+      mctx.fill();
+    }
+    for(const n of npcs){
+      if(Math.abs(n.x - player.x) > mmR2 || Math.abs(n.y - player.y) > mmR2) continue;
+      mctx.fillStyle = n.downed ? 'rgba(220,60,60,0.85)'
+        : n.isPolice ? (n.policeState === 'chase' ? '#ffd44d' : '#2255CC')
+        : 'rgba(220,215,200,0.65)';
+      mctx.beginPath();
+      mctx.arc(toX(n.x), toY(n.y), 1.6, 0, Math.PI * 2);
+      mctx.fill();
+    }
+    for(const s of stashes){
+      mctx.fillStyle = s.big ? '#FFE1A0' : '#E8A33D';
+      mctx.beginPath();
+      mctx.arc(toX(s.x), toY(s.y), 2.5, 0, Math.PI * 2);
+      mctx.fill();
+    }
+    mctx.fillStyle = 'rgba(120,200,180,0.85)';
+    mctx.fillRect(toX(shop.x), toY(shop.y), Math.max(2, shop.w * scale), Math.max(2, shop.h * scale));
+    mctx.fillStyle = 'rgba(150,175,120,0.55)';
+    const mmR = MINIMAP_RANGE/2 + 40;
+    for(const hs of houses){
+      if(hs.isPlayerHouse || hs.isGym || hs.isOffice || hs.isBank) continue;
+      if(Math.abs(hs.x + hs.w/2 - player.x) > mmR || Math.abs(hs.y + hs.h/2 - player.y) > mmR) continue;
+      mctx.fillRect(toX(hs.x), toY(hs.y), Math.max(1, hs.w * scale), Math.max(1, hs.h * scale));
+    }
+    const gymHs = houses.find(h => h.isGym);
+    if(gymHs){
+      mctx.fillStyle = 'rgba(79,163,232,0.9)';
+      mctx.fillRect(toX(gymHs.x), toY(gymHs.y), Math.max(2, gymHs.w * scale), Math.max(2, gymHs.h * scale));
+    }
+    const officeHs = houses.find(h => h.isOffice);
+    if(officeHs){
+      mctx.fillStyle = 'rgba(140,151,166,0.9)';
+      mctx.fillRect(toX(officeHs.x), toY(officeHs.y), Math.max(2, officeHs.w * scale), Math.max(2, officeHs.h * scale));
+    }
+    if(playerHouse){
+      mctx.fillStyle = 'rgba(232,163,61,0.9)';
+      mctx.fillRect(toX(playerHouse.x), toY(playerHouse.y), Math.max(2, playerHouse.w * scale), Math.max(2, playerHouse.h * scale));
+    }
+    if(bankHouse){
+      mctx.fillStyle = 'rgba(62,168,107,0.9)';
+      mctx.fillRect(toX(bankHouse.x), toY(bankHouse.y), Math.max(2, bankHouse.w * scale), Math.max(2, bankHouse.h * scale));
+    }
+    mctx.strokeStyle = 'rgba(237,232,220,0.45)';
+    mctx.lineWidth = 1;
+    mctx.strokeRect(toX(camera.x), toY(camera.y), viewport.w * scale, viewport.h * scale);
+    if(vehicle){
+      mctx.fillStyle = '#3E6FA8';
+      mctx.beginPath();
+      mctx.arc(toX(vehicle.x), toY(vehicle.y), driving ? 3 : 2.5, 0, Math.PI * 2);
+      mctx.fill();
+    }
+    if(!driving){
+      mctx.fillStyle = PALETTE.playerBody;
+      mctx.beginPath();
+      mctx.arc(size / 2, size / 2, 3, 0, Math.PI * 2);
+      mctx.fill();
+    }
+    if(gpsTarget){
+      const pulse = 3 + Math.sin(performance.now() / 220) * 1.5;
+      mctx.strokeStyle = 'rgba(94,196,255,0.9)';
+      mctx.lineWidth = 1.5;
+      mctx.beginPath();
+      mctx.arc(toX(gpsTarget.x), toY(gpsTarget.y), 6 + pulse, 0, Math.PI * 2);
+      mctx.stroke();
+      mctx.fillStyle = '#5ec4ff';
+      mctx.beginPath();
+      mctx.arc(toX(gpsTarget.x), toY(gpsTarget.y), 3.5, 0, Math.PI * 2);
+      mctx.fill();
+    }
+  }
+
+  let lastStreetName = null;
+  let streetToastTimer = null;
+  function showStreetToast(name){
+    streetToastEl.textContent = name;
+    streetToastEl.classList.add('show');
+    if(streetToastTimer) clearTimeout(streetToastTimer);
+    streetToastTimer = setTimeout(() => { streetToastEl.classList.remove('show'); }, 2000);
+  }
+
+  let lastPhaseName = null;
+  function updateHUD(){
+    const streetName = currentStreetName(player.x, player.y);
+    if(streetName !== lastStreetName){
+      if(lastStreetName !== null) showStreetToast(streetName);
+      lastStreetName = streetName;
+    }
+    cycleMarkerEl.style.left = (dayTime * 100) + '%';
+    const phase = dayPhaseName(dayTime);
+    if(phase !== lastPhaseName){
+      cyclePhaseEl.textContent = phase;
+      lastPhaseName = phase;
+    }
+
+    const hungerPct = Math.round(hunger);
+    const thirstPct = Math.round(thirst);
+    const healthPct = Math.round(health);
+    healthFillEl.style.width = healthPct + '%';
+    healthFillEl.style.backgroundColor = statColor(health);
+    healthValEl.textContent = healthPct + '%';
+    hungerFillEl.style.width = hungerPct + '%';
+    hungerFillEl.style.backgroundColor = statColor(hunger);
+    hungerValEl.textContent = hungerPct + '%';
+    thirstFillEl.style.width = thirstPct + '%';
+    thirstFillEl.style.backgroundColor = statColor(thirst);
+    thirstValEl.textContent = thirstPct + '%';
+
+    if(gpsTarget){
+      const dx = gpsTarget.x - player.x, dy = gpsTarget.y - player.y;
+      const dist = Math.hypot(dx, dy);
+      if(dist < (gpsTarget.radius || 40)){
+        showStreetToast('Llegaste a ' + gpsTarget.name);
+        gpsTarget = null;
+        gpsHudEl.classList.remove('show');
+      } else {
+        gpsHudEl.classList.add('show');
+        gpsHudEl.innerHTML = '<span class="arrow">' + directionArrow(dx, dy) + '</span><span>' + gpsTarget.name + ' \u00b7 ' + Math.round(dist) + 'm</span>';
+      }
+    } else {
+      gpsHudEl.classList.remove('show');
+    }
+  }
+
+  // ---------- Guardado autom\u00e1tico ----------
+  // Guarda el progreso (no el mapa, que siempre se regenera) para poder
+  // continuar si el jugador cierra la pesta\u00f1a, recarga o el juego se cierra
+  // de forma inesperada (el sistema operativo mata la pesta\u00f1a, se corta la luz, etc.)
+  const SAVE_KEY = 'stalkow_save_v1';
+
+  function collectSaveData(){
+    return {
+      version: 1,
+      savedAt: Date.now(),
+      playerMoney: playerMoney,
+      bankBalance: bankBalance,
+      playerLevel: playerLevel,
+      playerXP: playerXP,
+      hunger: hunger,
+      thirst: thirst,
+      health: health,
+      dayTime: dayTime,
+      nightFrozen: nightFrozen,
+      speedBonus: speedBonus,
+      player: { x: player.x, y: player.y },
+      vehicle: vehicle ? { x: vehicle.x, y: vehicle.y, angle: vehicle.angle, speed: 0 } : null,
+      installedApps: INSTALLED_APPS.filter(a => a.name !== 'ShopApp').map(a => a.name),
+      inventory: inventory.map(item => (item && !item.isPhone) ? { name: item.name, emoji: item.emoji, hunger: item.hunger, thirst: item.thirst } : null),
+      gpsTarget: gpsTarget ? { name: gpsTarget.name, x: gpsTarget.x, y: gpsTarget.y, radius: gpsTarget.radius } : null,
+      fines: fines.map(f => ({ id: f.id, description: f.description, amount: f.amount })),
+      fineIdCounter: fineIdCounter
+    };
+  }
+
+  function saveGame(){
+    if(resettingGame) return; // se esta reiniciando la partida: no re-escribir el save viejo al recargar
+    try{
+      localStorage.setItem(SAVE_KEY, JSON.stringify(collectSaveData()));
+    }catch(e){
+      // almacenamiento no disponible (modo privado, cuota llena, etc.): se ignora en silencio
+    }
+  }
+
+  function loadSavedGame(){
+    try{
+      const raw = localStorage.getItem(SAVE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    }catch(e){
+      return null;
+    }
+  }
+
+  function applySavedGame(data){
+    if(!data) return;
+    if(typeof data.playerMoney === 'number') playerMoney = data.playerMoney;
+    if(typeof data.bankBalance === 'number') bankBalance = data.bankBalance;
+    if(typeof data.playerLevel === 'number') playerLevel = data.playerLevel;
+    if(typeof data.playerXP === 'number') playerXP = data.playerXP;
+    if(typeof data.hunger === 'number') hunger = data.hunger;
+    if(typeof data.thirst === 'number') thirst = data.thirst;
+    if(typeof data.health === 'number') health = data.health;
+    if(typeof data.dayTime === 'number') dayTime = data.dayTime;
+    if(typeof data.nightFrozen === 'boolean') nightFrozen = data.nightFrozen;
+    if(typeof data.speedBonus === 'number'){
+      speedBonus = data.speedBonus;
+      player.speed = baseSpeed * (1 + speedBonus);
+    }
+    if(data.player){
+      player.x = clamp(data.player.x, player.r, WORLD_W - player.r);
+      player.y = clamp(data.player.y, player.r, WORLD_H - player.r);
+    }
+    if(data.vehicle && vehicle){
+      vehicle.x = clamp(data.vehicle.x, vehicle.r, WORLD_W - vehicle.r);
+      vehicle.y = clamp(data.vehicle.y, vehicle.r, WORLD_H - vehicle.r);
+      if(typeof data.vehicle.angle === 'number') vehicle.angle = data.vehicle.angle;
+      vehicle.speed = 0;
+    }
+    if(Array.isArray(data.installedApps)){
+      data.installedApps.forEach(name => {
+        const app = DOWNLOADABLE_APPS.find(a => a.name === name);
+        if(app) installApp(app);
+      });
+    }
+    if(Array.isArray(data.inventory)){
+      for(let i = 0; i < INVENTORY_SIZE; i++){
+        if(i === PHONE_SLOT) continue;
+        inventory[i] = data.inventory[i] || null;
+      }
+    }
+    gpsTarget = data.gpsTarget ? { name: data.gpsTarget.name, x: data.gpsTarget.x, y: data.gpsTarget.y, radius: data.gpsTarget.radius } : null;
+    if(Array.isArray(data.fines)){
+      fines.length = 0;
+      data.fines.forEach(f => {
+        if(typeof f.amount === 'number' && typeof f.description === 'string') fines.push({ id: f.id, description: f.description, amount: f.amount });
+      });
+    }
+    if(typeof data.fineIdCounter === 'number') fineIdCounter = data.fineIdCounter;
+
+    updateMoneyUI();
+    updateHotbar();
+    refreshBankUI();
+    updateLevelUI();
+    gymBonusValEl.textContent = '+' + Math.round(speedBonus * 100) + '%';
+  }
+
+  const pendingSave = loadSavedGame();
+
+  // Guarda ante cualquier forma normal de salir o de pasar a segundo plano...
+  window.addEventListener('beforeunload', saveGame);
+  window.addEventListener('pagehide', saveGame);
+  document.addEventListener('visibilitychange', () => {
+    if(document.visibilityState === 'hidden') saveGame();
+  });
+  // ...y adem\u00e1s cada pocos segundos, como red de seguridad para cierres
+  // inesperados en los que ninguno de esos eventos llega a dispararse
+  // (el sistema operativo mata la app, se cuelga el navegador, se va la luz, etc.)
+  setInterval(saveGame, 15000);
+
+  // ---------- Loop ----------
+  let last = performance.now();
+  let fpsSmooth = 60;
+  let minimapAccum = 0;
+  function loop(now){
+    const dtRaw = (now - last) / 1000;
+    const dt = Math.min(0.05, dtRaw);
+    last = now;
+    if(dtRaw > 0) fpsSmooth += (1/dtRaw - fpsSmooth) * 0.1;
+    fpsEl.textContent = Math.round(fpsSmooth);
+    if(!paused) update(dt);
+    render();
+    // el minimapa es un detalle chico del HUD: con ~30 actualizaciones por segundo
+    // se ve identico y se ahorra trabajo de canvas en cada frame
+    minimapAccum += dt;
+    if(minimapAccum >= 1/30 || dtRaw <= 0){
+      minimapAccum = 0;
+      renderMinimap();
+    }
+    updateHUD();
+    requestAnimationFrame(loop);
+  }
+
+  resize();
+  camera.x = clamp(player.x - viewport.w/2, 0, Math.max(0, WORLD_W - viewport.w));
+  camera.y = clamp(player.y - viewport.h/2, 0, Math.max(0, WORLD_H - viewport.h));
+
+  // ---------- Pantalla de inicio / carga ----------
+  // El mundo (casas, \u00e1rboles, calles, etc.) ya qued\u00f3 generado arriba, antes de
+  // llegar ac\u00e1, as\u00ed que ac\u00e1 solo mostramos el progreso y recien arrancamos el
+  // loop del juego cuando el jugador toca JUGAR. As\u00ed nada se genera ni carga
+  // mientras se est\u00e1 jugando.
+  const LOADING_STEPS = [
+    'Generando el mapa...',
+    'Ubicando casas y garajes...',
+    'Plantando \u00e1rboles...',
+    'Preparando tienda, gym y oficina...',
+    'Listo.'
+  ];
+  let loadingStart = null;
+  const LOADING_DURATION = 1300;
+  function animateLoading(now){
+    if(loadingStart === null) loadingStart = now;
+    const elapsed = now - loadingStart;
+    const pct = Math.min(100, (elapsed / LOADING_DURATION) * 100);
+    startBarFillEl.style.width = pct + '%';
+    const stepIdx = Math.min(LOADING_STEPS.length - 1, Math.floor((pct / 100) * (LOADING_STEPS.length - 1)));
+    startStatusEl.textContent = LOADING_STEPS[stepIdx];
+    if(pct < 100){
+      requestAnimationFrame(animateLoading);
+    } else {
+      startStatusEl.textContent = pendingSave
+        ? 'Listo. Partida guardada encontrada: se restaurar\u00e1 tu progreso.'
+        : LOADING_STEPS[LOADING_STEPS.length - 1];
+      startPlayBtnEl.classList.add('show');
+    }
+  }
+  requestAnimationFrame(animateLoading);
+
+  startPlayBtnEl.addEventListener('click', () => {
+    if(pendingSave) applySavedGame(pendingSave);
+    startScreenEl.classList.add('hidden');
+    canvas.focus();
+    requestAnimationFrame(loop);
+    saveGame();
+  }, { once: true });
+})();
+</script>
+</body>
+</html>

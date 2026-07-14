@@ -1,0 +1,17 @@
+{
+  "short_name": "STALK_OW",
+  "name": "STALK_OW",
+  "icons": [
+    {
+      "src": "icono.png",
+      "sizes": "755x719",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "./index.html",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "display": "standalone",
+  "orientation": "landscape"
+}
