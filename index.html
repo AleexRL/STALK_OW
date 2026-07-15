@@ -1,3 +1,4 @@
+<!-- Stalk.ow - v2.2 (2026-07-14): los ladrones y atacantes de las zonas peligrosas dejaron de ser un círculo simple; ahora tienen torso y cabeza con el mismo despiece y animación de caminata que los NPCs comunes, manteniendo el color de ropa oscuro que los distingue -->
 <!-- Stalk.ow - v2.1 (2026-07-13): las multas de la policía ya no se cobran al toque, quedan como deuda pendiente; se agregó un apartado de "Multas pendientes" en la app Bank del celular con la descripción, el monto y un botón para pagarlas con el efectivo disponible -->
 <!-- Stalk.ow - v2.0 (2026-07-13): el personaje del jugador dejó de ser un círculo simple; ahora tiene torso, cabeza con pelo y una cara que marca hacia dónde está mirando/caminando, con el mismo nivel de detalle que los NPCs -->
 <!-- Stalk.ow - v1.9 (2026-07-13): los NPCs policía ahora se ven distintos a un peatón común: gorra oscura con visera y placa dorada en el pecho, tanto parados como tirados en el piso -->
@@ -439,6 +440,18 @@
   </div>
 </div>
 
+<div class="shop-modal" id="armoryModal">
+  <div class="shop-panel">
+    <div class="shop-header">
+      <div class="shop-header-title"><span>Armer&iacute;a</span><span class="shop-balance" id="armoryBalance"></span></div>
+      <button class="shop-close" id="armoryClose" aria-label="Cerrar">&times;</button>
+    </div>
+    <div class="shop-body" id="armoryBody">
+      <div class="shop-empty">Sin art&iacute;culos por ahora.<br>Vuelve pronto.</div>
+    </div>
+  </div>
+</div>
+
 <div class="shop-modal" id="fightModal">
   <div class="shop-panel">
     <div class="shop-header">
@@ -576,6 +589,11 @@
   const gymMarkerEl = document.getElementById('gymMarker');
   const gymMsgEl = document.getElementById('gymMsg');
   const gymHitBtn = document.getElementById('gymHitBtn');
+  const armoryModal = document.getElementById('armoryModal');
+  const armoryClose = document.getElementById('armoryClose');
+  const armoryBodyEl = document.getElementById('armoryBody');
+  const armoryBalanceEl = document.getElementById('armoryBalance');
+
   const officeModal = document.getElementById('officeModal');
   const officeClose = document.getElementById('officeClose');
   const officeBalanceEl = document.getElementById('officeBalance');
@@ -770,11 +788,71 @@
   const SHOP_STOCK_SIZE = 4;
   let currentShopStock = [];
 
+  // ---------- Cat\u00e1logo de la armer\u00eda (objetos de defensa personal, abre 24hs) ----------
+  const WEAPON_PRODUCTS = [
+    { name: 'Navaja', emoji: '\ud83d\udd2a', damage: 2, price: 90  },
+    { name: 'Pistola 9mm', emoji: '\ud83d\udd2b', damage: 4, price: 350  }
+  ];
+  const ARMORY_STOCK_SIZE = 4;
+  let currentArmoryStock = [];
+
+  function pickArmoryStock(){
+    const pool = WEAPON_PRODUCTS.slice();
+    const picks = [];
+    const count = Math.min(ARMORY_STOCK_SIZE, pool.length);
+    for(let i = 0; i < count; i++){
+      const idx = Math.floor(Math.random() * pool.length);
+      picks.push(pool.splice(idx, 1)[0]);
+    }
+    return picks;
+  }
+
+  function hasWeaponEquipped(){
+    return inventory.some(it => it && it.isWeapon);
+  }
+
+  function renderArmory(){
+    if(!currentArmoryStock.length){
+      armoryBodyEl.innerHTML = '<div class="shop-empty">Sin art\u00edculos por ahora.<br>Vuelve pronto.</div>';
+      return;
+    }
+    armoryBodyEl.innerHTML = '';
+    currentArmoryStock.forEach((p) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'shop-item';
+      const parts = [];
+      parts.push('Defensa +' + p.damage);
+      parts.push('$' + p.price);
+      item.innerHTML = '<span class="shop-item-name">' + p.emoji + ' ' + p.name + '</span>' +
+        '<span class="shop-item-stats">' + parts.join(' \u00b7 ') + '</span>';
+      item.addEventListener('click', () => {
+        if(playerMoney < p.price){
+          item.classList.add('flash-full');
+          setTimeout(() => item.classList.remove('flash-full'), 400);
+          return;
+        }
+        const added = addToInventory(Object.assign({}, p, { isWeapon: true }));
+        if(!added){
+          item.classList.add('flash-full');
+          setTimeout(() => item.classList.remove('flash-full'), 400);
+          return;
+        }
+        playerMoney -= p.price;
+        updateMoneyUI();
+        item.classList.add('used');
+        item.disabled = true;
+      });
+      armoryBodyEl.appendChild(item);
+    });
+  }
+
   function updateMoneyUI(){
     const label = '$' + Math.floor(playerMoney).toLocaleString('es-ES');
     if(shopBalanceEl) shopBalanceEl.textContent = label;
     if(gymBalanceEl) gymBalanceEl.textContent = label;
     if(officeBalanceEl) officeBalanceEl.textContent = label;
+    if(armoryBalanceEl) armoryBalanceEl.textContent = label;
     if(cashHudEl) cashHudEl.textContent = label;
   }
   updateMoneyUI();
@@ -803,7 +881,7 @@
   function addToInventory(product){
     const idx = inventory.findIndex((s, i) => s === null && i !== PHONE_SLOT);
     if(idx === -1) return false;
-    inventory[idx] = { name: product.name, emoji: product.emoji, hunger: product.hunger, thirst: product.thirst };
+    inventory[idx] = { name: product.name, emoji: product.emoji, hunger: product.hunger || 0, thirst: product.thirst || 0, isWeapon: !!product.isWeapon, damage: product.damage || 0 };
     updateHotbar();
     return true;
   }
@@ -812,6 +890,7 @@
     const item = inventory[i];
     if(!item) return;
     if(item.isPhone){ openPhone(); return; }
+    if(item.isWeapon){ showStreetToast(item.emoji + ' ' + item.name + ' equipado (' + item.damage + ' de defensa)'); return; }
     hunger = Math.min(100, hunger + item.hunger);
     thirst = Math.min(100, thirst + item.thirst);
     inventory[i] = null;
@@ -1147,6 +1226,15 @@
     officeHouse.roof = '#8C97A6';
     officeHouse.wall = darken('#8C97A6', 0.35);
     specialUsed.push(officeHouse);
+  }
+
+  // ---------- Armer\u00eda: reemplaza otra casa aleatoria ----------
+  const armoryHouse = pickSpecialHouse(specialUsed);
+  if(armoryHouse){
+    armoryHouse.isArmory = true;
+    armoryHouse.roof = '#B5473A';
+    armoryHouse.wall = darken('#B5473A', 0.35);
+    specialUsed.push(armoryHouse);
   }
 
   // ---------- Banco: reemplaza otra casa aleatoria ----------
@@ -1496,6 +1584,24 @@
   officeClose.addEventListener('click', closeOffice);
   officeModal.addEventListener('click', (e) => { if(e.target === officeModal) closeOffice(); });
   window.addEventListener('keydown', (e) => { if(e.code === 'Escape' && officeOpen) closeOffice(); });
+
+  // ---------- Armería (interacción, abre 24hs) ----------
+  const ARMORY_RADIUS = armoryHouse ? Math.max(armoryHouse.w, armoryHouse.h) / 2 + 40 : 0;
+  let armoryOpen = false;
+  function nearArmory(){
+    return !!armoryHouse && !driving && Math.hypot(player.x - (armoryHouse.x + armoryHouse.w/2), player.y - (armoryHouse.y + armoryHouse.h/2)) < ARMORY_RADIUS;
+  }
+  function openArmory(){
+    if(!armoryHouse) return;
+    currentArmoryStock = pickArmoryStock();
+    renderArmory();
+    armoryOpen = true;
+    armoryModal.classList.add('open');
+  }
+  function closeArmory(){ armoryOpen = false; armoryModal.classList.remove('open'); }
+  armoryClose.addEventListener('click', closeArmory);
+  armoryModal.addEventListener('click', (e) => { if(e.target === armoryModal) closeArmory(); });
+  window.addEventListener('keydown', (e) => { if(e.code === 'Escape' && armoryOpen) closeArmory(); });
 
   // ---------- Banco (interacción) ----------
   const BANK_RADIUS = bankHouse ? Math.max(bankHouse.w, bankHouse.h) / 2 + 40 : 0;
@@ -1878,6 +1984,7 @@
     if(nearGym() && !gymOpen){ actionBtn.textContent = 'GYM ($' + GYM_ENTRY_PRICE + ')'; actionBtn.style.display = 'flex'; actionBtn.dataset.action = 'gym'; return; }
     if(nearOffice() && !officeOpen){ actionBtn.textContent = 'OFICINA'; actionBtn.style.display = 'flex'; actionBtn.dataset.action = 'office'; return; }
     if(nearBank() && !bankOpen){ actionBtn.textContent = 'BANCO'; actionBtn.style.display = 'flex'; actionBtn.dataset.action = 'bank'; return; }
+    if(nearArmory() && !armoryOpen){ actionBtn.textContent = 'ARMERÍA'; actionBtn.style.display = 'flex'; actionBtn.dataset.action = 'armory'; return; }
     if(nearHome() && isNight()){ actionBtn.textContent = 'DORMIR'; actionBtn.style.display = 'flex'; actionBtn.dataset.action = 'sleep'; return; }
     if(nearNpc()){ actionBtn.textContent = 'HABLAR'; actionBtn.style.display = 'flex'; actionBtn.dataset.action = 'npc'; return; }
     actionBtn.style.display = 'none';
@@ -1887,6 +1994,7 @@
     else if(actionBtn.dataset.action === 'gym') openGym();
     else if(actionBtn.dataset.action === 'office') openOffice();
     else if(actionBtn.dataset.action === 'bank') openBank();
+    else if(actionBtn.dataset.action === 'armory') openArmory();
     else if(actionBtn.dataset.action === 'sleep') sleepAtHome();
     else if(actionBtn.dataset.action === 'vehicle') toggleVehicle();
     else if(actionBtn.dataset.action === 'npc'){ const n = nearNpc(); if(n) talkToNpc(n); }
@@ -1903,6 +2011,7 @@
       else if(nearGym() && !gymOpen) openGym();
       else if(nearOffice() && !officeOpen) openOffice();
       else if(nearBank() && !bankOpen) openBank();
+      else if(nearArmory() && !armoryOpen) openArmory();
       else if(nearHome() && isNight()) sleepAtHome();
       else { const n = nearNpc(); if(n) talkToNpc(n); }
     }
@@ -2276,7 +2385,8 @@
       state: 'patrol',
       patrolX: hx, patrolY: hy,
       patrolTimer: 0,
-      shootTimer: GUN_SHOOT_COOLDOWN_MIN + Math.random() * GUN_SHOOT_COOLDOWN_VAR
+      shootTimer: GUN_SHOOT_COOLDOWN_MIN + Math.random() * GUN_SHOOT_COOLDOWN_VAR,
+      bobPhase: Math.random() * Math.PI * 2
     });
   }
 
@@ -2721,7 +2831,18 @@
       }
     } else {
       const withGun = enemy.weapon === 'gun';
-      health = Math.max(0, health - (withGun ? (30 + Math.random() * 18) : (35 + Math.random() * 20)));
+      const equipped = inventory.find(it => it && it.isWeapon);
+      const isPistol = equipped && equipped.name === 'Pistola 9mm';
+      // la 9mm tiene una chance alta de repeler al atacante sin recibir da\u00f1o;
+      // la navaja u otra arma equipada ayuda bastante menos en un enfrentamiento real
+      const repelChance = isPistol ? 0.7 : (equipped ? 0.2 : 0);
+      if(Math.random() < repelChance){
+        showStreetToast('\u00a1Le disparaste con tu 9mm y sali\u00f3 corriendo en ' + enemy.zone.name + '!');
+        return;
+      }
+      let dmg = withGun ? (30 + Math.random() * 18) : (35 + Math.random() * 20);
+      if(equipped) dmg *= isPistol ? 0.4 : 0.75;
+      health = Math.max(0, health - dmg);
       if(health <= 0) knockOutPlayer(enemy.zone);
       else showStreetToast(withGun ? '\u00a1Te dio un culatazo en ' + enemy.zone.name + '!' : '\u00a1Te atacaron a cuchillazos en ' + enemy.zone.name + '!');
     }
@@ -2825,10 +2946,12 @@
     fightEnemyHpEl.style.width = Math.max(0, 100 - (fightPlayerHits / FIGHT_HITS_TO_WIN) * 100) + '%';
   }
 
+  let fightZoneWidthCur = FIGHT_ZONE_WIDTH;
   function newFightRound(){
-    fightZoneStart = Math.random() * (100 - FIGHT_ZONE_WIDTH);
+    fightZoneWidthCur = hasWeaponEquipped() ? FIGHT_ZONE_WIDTH + 10 : FIGHT_ZONE_WIDTH;
+    fightZoneStart = Math.random() * (100 - fightZoneWidthCur);
     fightZoneEl.style.left = fightZoneStart + '%';
-    fightZoneEl.style.width = FIGHT_ZONE_WIDTH + '%';
+    fightZoneEl.style.width = fightZoneWidthCur + '%';
     fightGameTime = Math.random() * FIGHT_CYCLE_SECONDS;
   }
 
@@ -2849,7 +2972,9 @@
     fightEnemyHits = 0;
     fightTitleEl.textContent = '\u00a1Un ladr\u00f3n te alcanz\u00f3!';
     fightEnemyLabelEl.textContent = 'Ladr\u00f3n';
-    fightMsgEl.textContent = 'Toc\u00e1 "GOLPEAR" cuando el marcador pase por la zona verde.';
+    fightMsgEl.textContent = hasWeaponEquipped()
+      ? 'Toc\u00e1 "GOLPEAR" cuando el marcador pase por la zona verde. Tu objeto de defensa te da m\u00e1s margen.'
+      : 'Toc\u00e1 "GOLPEAR" cuando el marcador pase por la zona verde.';
     fightMsgEl.className = 'gym-msg';
     updateFightHpUI();
     fightModal.classList.add('open');
@@ -2874,7 +2999,7 @@
 
   fightHitBtn.addEventListener('click', () => {
     if(!fightActive) return;
-    const inZone = fightMarkerPercent >= fightZoneStart && fightMarkerPercent <= fightZoneStart + FIGHT_ZONE_WIDTH;
+    const inZone = fightMarkerPercent >= fightZoneStart && fightMarkerPercent <= fightZoneStart + fightZoneWidthCur;
     if(inZone){
       fightPlayerHits++;
       fightMsgEl.textContent = '\u00a1Buen golpe!';
@@ -2906,6 +3031,7 @@
 
     for(let i = enemies.length - 1; i >= 0; i--){
       const e = enemies[i];
+      e.bobPhase += dt * e.speed * 0.28;
       if(e.state === 'patrol'){
         const distToPlayer = Math.hypot(player.x - e.x, player.y - e.y);
         if(dangerGraceTimer <= 0 && distToPlayer < ENEMY_DETECT_RADIUS){
@@ -3014,6 +3140,7 @@
     if(gymOpen && (driving || !nearGym())) closeGym();
     if(officeOpen && (driving || !nearOffice())) closeOffice();
     if(bankOpen && (driving || !nearBank())) closeBank();
+    if(armoryOpen && (driving || !nearArmory())) closeArmory();
     updateGymGame(dt);
     updateOfficeJob(dt);
     updateActionButton();
@@ -3101,6 +3228,19 @@
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('BANCO', hs.x + hs.w/2, ly + labelH/2 + 1);
+    } else if(hs.isArmory){
+      ctx.fillStyle = 'rgba(15,17,13,0.85)';
+      ctx.strokeStyle = 'rgba(181,71,58,.7)';
+      ctx.lineWidth = 1;
+      const labelW = 72, labelH = 18;
+      const lx = hs.x + hs.w/2 - labelW/2, ly = hs.y - labelH - 10;
+      roundRectPath(ctx, lx, ly, labelW, labelH, 4);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#D8664F';
+      ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('ARMERÍA', hs.x + hs.w/2, ly + labelH/2 + 1);
     }
   }
 
@@ -3201,23 +3341,31 @@
   }
 
   function drawEnemy(e){
+    const bob = Math.sin(e.bobPhase) * 1.6;
     ctx.fillStyle = 'rgba(0,0,0,0.28)';
     ctx.beginPath();
     ctx.ellipse(e.x + 4, e.y + 5, e.r * 0.9, e.r * 0.55, 0, 0, Math.PI * 2);
     ctx.fill();
 
+    // torso, con el mismo despiece que un NPC comun (elipse + cabeza), solo que
+    // con un color de ropa oscuro y distintivo para reconocer atacante vs ladron
     ctx.fillStyle = e.type === 'attacker' ? '#a83232' : '#8a4fae';
     ctx.strokeStyle = '#1a1210';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
+    ctx.ellipse(e.x, e.y - 2 + bob * 0.3, e.r * 0.62, e.r * 0.82, 0, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+
+    ctx.fillStyle = '#D9BFA0';
+    ctx.beginPath();
+    ctx.arc(e.x, e.y - e.r * 0.95 + bob * 0.3, e.r * 0.42, 0, Math.PI * 2);
     ctx.fill(); ctx.stroke();
 
     if(e.type === 'attacker' && e.weapon){
       ctx.font = '11px "JetBrains Mono", monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(e.weapon === 'gun' ? '\ud83d\udd2b' : '\ud83d\udd2a', e.x + e.r * 0.75, e.y - e.r * 0.6);
+      ctx.fillText(e.weapon === 'gun' ? '\ud83d\udd2b' : '\ud83d\udd2a', e.x + e.r * 0.9, e.y - e.r * 1.1);
     }
 
     if(e.state === 'chase'){
@@ -3225,7 +3373,7 @@
       ctx.font = 'bold 13px "JetBrains Mono", monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.fillText('!', e.x, e.y - e.r - 3);
+      ctx.fillText('!', e.x, e.y - e.r * 1.9);
     }
   }
 
@@ -3458,7 +3606,7 @@
     mctx.fillStyle = 'rgba(150,175,120,0.55)';
     const mmR = MINIMAP_RANGE/2 + 40;
     for(const hs of houses){
-      if(hs.isPlayerHouse || hs.isGym || hs.isOffice || hs.isBank) continue;
+      if(hs.isPlayerHouse || hs.isGym || hs.isOffice || hs.isBank || hs.isArmory) continue;
       if(Math.abs(hs.x + hs.w/2 - player.x) > mmR || Math.abs(hs.y + hs.h/2 - player.y) > mmR) continue;
       mctx.fillRect(toX(hs.x), toY(hs.y), Math.max(1, hs.w * scale), Math.max(1, hs.h * scale));
     }
@@ -3475,6 +3623,10 @@
     if(playerHouse){
       mctx.fillStyle = 'rgba(232,163,61,0.9)';
       mctx.fillRect(toX(playerHouse.x), toY(playerHouse.y), Math.max(2, playerHouse.w * scale), Math.max(2, playerHouse.h * scale));
+    }
+    if(armoryHouse){
+      mctx.fillStyle = 'rgba(181,71,58,0.9)';
+      mctx.fillRect(toX(armoryHouse.x), toY(armoryHouse.y), Math.max(2, armoryHouse.w * scale), Math.max(2, armoryHouse.h * scale));
     }
     if(bankHouse){
       mctx.fillStyle = 'rgba(62,168,107,0.9)';
@@ -3711,7 +3863,7 @@
     'Generando el mapa...',
     'Ubicando casas y garajes...',
     'Plantando \u00e1rboles...',
-    'Preparando tienda, gym y oficina...',
+    'Preparando tienda, gym, oficina y armería...',
     'Listo.'
   ];
   let loadingStart = null;
